@@ -1,3 +1,7 @@
+// ==========================================================================
+// PACKSPEC AI - BOXBUDDY SECURED BACKEND INFRASTRUCTURE
+// ==========================================================================
+
 // 🌐 NODE.JS ENVIRONMENT POLYFILL (Fixes 'window is not defined' in Shippo SDK)
 if (typeof window === 'undefined') {
   global.window = global;
@@ -246,7 +250,9 @@ app.post('/api/optimize', async (req, res) => {
       const specW = parseFloat(itemSpecifics.width);
       const specH = parseFloat(itemSpecifics.height);
       if (!isNaN(specL) && !isNaN(specW) && !isNaN(specH)) {
-        return res.json(await compileLiveCarrierBoxResponse(specL, specW, specH, parsedWeight || 16, pageShippingCost, cleanOriginZip, cleanDestZip));
+        const responseData = await compileLiveCarrierBoxResponse(specL, specW, specH, parsedWeight || 16, pageShippingCost, cleanOriginZip, cleanDestZip);
+        responseData.remainingCredits = newBalance;
+        return res.json(responseData);
       }
     }
 
@@ -296,11 +302,23 @@ Output ONLY a valid JSON object: {"length": number, "width": number, "height": n
       finalWeight = Number(parsedData.weight) || finalWeight;
     } catch (aiErr) {}
 
-    return res.json(await compileLiveCarrierBoxResponse(finalLength, finalWidth, finalHeight, parsedWeight || finalWeight, pageShippingCost, cleanOriginZip, cleanDestZip));
+    const responseData = await compileLiveCarrierBoxResponse(finalLength, finalWidth, finalHeight, parsedWeight || finalWeight, pageShippingCost, cleanOriginZip, cleanDestZip);
+    responseData.remainingCredits = newBalance;
+    return res.json(responseData);
 
   } catch (error) {
     res.json({ success: false, error: 'Internal Error' });
   }
+});
+
+// 🪙 GET USER CREDIT BALANCE ROUTE
+app.get('/api/credits', async (req, res) => {
+  const userId = req.query.browserExtensionId || 'anonymous_user_guest';
+  let userRecord = await db.findOne({ userId });
+  if (!userRecord) {
+    userRecord = await db.insert({ userId, credits: 3 });
+  }
+  res.json({ credits: userRecord.credits });
 });
 
 // 💳 STRIPE SUCCESS FULFILLMENT ROUTE
@@ -336,7 +354,7 @@ app.get('/api/stripe/success', async (req, res) => {
 
 // 🛠️ ADMIN ROUTE: REFILL LOCAL DEV CREDITS
 app.get('/api/admin/refill', async (req, res) => {
-  await db.update({ userId: 'kaheokadbghchegchjldjpmpmapfhijf' }, { $set: { credits: 50 } });
+  await db.update({ userId: 'kaheokadbghchegchjldjpmpmapfhijf' }, { $set: { credits: 50 } }, { upsert: true });
   res.send('Wallet reset to 50 credits successfully!');
 });
 
