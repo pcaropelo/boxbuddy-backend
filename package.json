@@ -1,0 +1,16 @@
+{
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@easypost/api": "^8.9.0",
+    "axios": "^1.20.0",
+    "cors": "^2.8.6",
+    "dotenv": "^18.0.3",
+    "express": "^5.2.1",
+    "nedb-promises": "^6.2.4",
+    "openai": "^7.22.0",
+    "shippo": "^2.18.0",
+    "stripe": "^22.6.2"
+  }
+}
