@@ -321,7 +321,7 @@ app.get('/api/credits', async (req, res) => {
   res.json({ credits: userRecord.credits });
 });
 
-// 💳 STRIPE SUCCESS FULFILLMENT ROUTE
+// 💳 STRIPE SUCCESS FULFILLMENT ROUTE (UPDATED TO INCREMENT BALANCE)
 app.get('/api/stripe/success', async (req, res) => {
   const sessionId = req.query.session_id;
   let tokensAwarded = 5;
@@ -344,18 +344,37 @@ app.get('/api/stripe/success', async (req, res) => {
     console.log('💡 Stripe session lookup warning: ' + err.message);
   }
 
-  const userRecord = await db.findOne({ userId: targetUserId });
-  const currentTokens = userRecord ? userRecord.credits : 0;
-  const targetTokens = currentTokens + tokensAwarded;
+  let userRecord = await db.findOne({ userId: targetUserId });
+  if (!userRecord) {
+    await db.insert({ userId: targetUserId, credits: tokensAwarded });
+  } else {
+    await db.update({ userId: targetUserId }, { $inc: { credits: tokensAwarded } });
+  }
 
-  await db.update({ userId: targetUserId }, { $set: { credits: targetTokens } }, { upsert: true });
-  res.send(`<h1>Refill Successful! 🎉</h1><p>Added ${tokensAwarded} credits to User ID: <strong>${targetUserId}</strong></p><p>You can close this tab and return to shopping.</p>`);
+  const updatedRecord = await db.findOne({ userId: targetUserId });
+  const newTotalCredits = updatedRecord ? updatedRecord.credits : tokensAwarded;
+
+  res.send(`
+    <div style="font-family: sans-serif; text-align: center; margin-top: 50px;">
+      <h1>Refill Successful! 🎉</h1>
+      <p>Added <strong>${tokensAwarded}</strong> credits to your account.</p>
+      <p>Your new total balance is <strong>${newTotalCredits} credits</strong>.</p>
+      <p style="color: #64748b; margin-top: 20px;">You can close this tab and return to shopping.</p>
+    </div>
+  `);
 });
 
-// 🛠️ ADMIN ROUTE: REFILL LOCAL DEV CREDITS
+// 🛠️ ADMIN ROUTE: INCREMENT DEV WALLET CREDITS BY 50
 app.get('/api/admin/refill', async (req, res) => {
-  await db.update({ userId: 'kaheokadbghchegchjldjpmpmapfhijf' }, { $set: { credits: 50 } }, { upsert: true });
-  res.send('Wallet reset to 50 credits successfully!');
+  const devUserId = 'kaheokadbghchegchjldjpmpmapfhijf';
+  let userRecord = await db.findOne({ userId: devUserId });
+  if (!userRecord) {
+    await db.insert({ userId: devUserId, credits: 50 });
+  } else {
+    await db.update({ userId: devUserId }, { $inc: { credits: 50 } });
+  }
+  const updated = await db.findOne({ userId: devUserId });
+  res.send(`Wallet updated successfully! Added 50 credits. New total: ${updated.credits}`);
 });
 
 app.listen(PORT, () => {
