@@ -58,7 +58,7 @@ async function resolveToZipCode(locationStr) {
 
   // 1. Intercept placeholder or invalid location strings immediately
   if (/^(00000|00001|00000-0000|n\/a|unknown|none)$/i.test(locationStr.trim()) || locationStr.includes('00000')) {
-    console.log(`⚠️️ Placeholder origin ZIP detected ("${locationStr}"). Applying default fallback ZIP.`);
+    console.log(`⚠️ Placeholder origin ZIP detected ("${locationStr}"). Applying default fallback ZIP.`);
     return '07030';
   }
   
@@ -365,7 +365,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
   }
 });
 
-// 💳 STRIPE SUCCESS FULFILLMENT ROUTE (WITH AUTO-REFRESH & AUTO-CLOSE JS)
+// 💳 STRIPE SUCCESS FULFILLMENT ROUTE (WITH CLEAR USER INSTRUCTIONS)
 app.get('/api/stripe/success', async (req, res) => {
   const sessionId = req.query.session_id;
   let tokensAwarded = 5;
@@ -403,16 +403,12 @@ app.get('/api/stripe/success', async (req, res) => {
       <h1>Refill Successful! 🎉</h1>
       <p>Added <strong>${tokensAwarded}</strong> credits to your account.</p>
       <p>Your new total balance is <strong>${newTotalCredits} credits</strong>.</p>
-      <p style="color: #64748b; margin-top: 20px;">Refreshing your eBay page and closing this tab automatically...</p>
+      <div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px; border-radius: 8px; max-width: 400px; margin: 20px auto; color: #166534;">
+        <p style="margin: 0; font-weight: bold;">You're all set!</p>
+        <p style="margin: 5px 0 0 0; font-size: 14px;">Go back to your eBay shopping tab and refresh the page to see your updated balance.</p>
+      </div>
+      <p style="color: #64748b; margin-top: 20px; font-size: 13px;">You can now close this tab.</p>
     </div>
-    <script>
-      setTimeout(() => {
-        if (window.opener) {
-          window.opener.location.reload();
-        }
-        window.close();
-      }, 2000);
-    </script>
   `);
 });
 
