@@ -321,7 +321,7 @@ app.get('/api/credits', async (req, res) => {
   res.json({ credits: userRecord.credits });
 });
 
-// 💳 STRIPE SUCCESS FULFILLMENT ROUTE (UPDATED TO INCREMENT BALANCE)
+// 💳 STRIPE SUCCESS FULFILLMENT ROUTE
 app.get('/api/stripe/success', async (req, res) => {
   const sessionId = req.query.session_id;
   let tokensAwarded = 5;
@@ -364,17 +364,17 @@ app.get('/api/stripe/success', async (req, res) => {
   `);
 });
 
-// 🛠️ ADMIN ROUTE: INCREMENT DEV WALLET CREDITS BY 50
+// 🛠️ ADMIN ROUTE: INCREMENT CREDITS FOR ANY USER ID
 app.get('/api/admin/refill', async (req, res) => {
-  const devUserId = 'kaheokadbghchegchjldjpmpmapfhijf';
-  let userRecord = await db.findOne({ userId: devUserId });
+  const userId = req.query.userId || 'kaheokadbghchegchjldjpmpmapfhijf';
+  let userRecord = await db.findOne({ userId });
   if (!userRecord) {
-    await db.insert({ userId: devUserId, credits: 50 });
+    await db.insert({ userId, credits: 50 });
   } else {
-    await db.update({ userId: devUserId }, { $inc: { credits: 50 } });
+    await db.update({ userId }, { $inc: { credits: 50 } });
   }
-  const updated = await db.findOne({ userId: devUserId });
-  res.send(`Wallet updated successfully! Added 50 credits. New total: ${updated.credits}`);
+  const updated = await db.findOne({ userId });
+  res.send(`Wallet updated successfully for user ${userId}! Added 50 credits. New total: ${updated.credits}`);
 });
 
 app.listen(PORT, () => {
