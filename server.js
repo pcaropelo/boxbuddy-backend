@@ -58,7 +58,7 @@ async function resolveToZipCode(locationStr) {
 
   // 1. Intercept placeholder or invalid location strings immediately
   if (/^(00000|00001|00000-0000|n\/a|unknown|none)$/i.test(locationStr.trim()) || locationStr.includes('00000')) {
-    console.log(`⚠️ Placeholder origin ZIP detected ("${locationStr}"). Applying default fallback ZIP.`);
+    console.log(`⚠️️ Placeholder origin ZIP detected ("${locationStr}"). Applying default fallback ZIP.`);
     return '07030';
   }
   
@@ -321,7 +321,51 @@ app.get('/api/credits', async (req, res) => {
   res.json({ credits: userRecord.credits });
 });
 
-// 💳 STRIPE SUCCESS FULFILLMENT ROUTE
+// 💳 CREATE DYNAMIC STRIPE CHECKOUT SESSION (GUARANTEES EXTENSION ID ATTACHMENT)
+app.post('/api/create-checkout-session', async (req, res) => {
+  const { browserExtensionId, packageType } = req.body;
+  const targetUserId = browserExtensionId || 'anonymous_user_guest';
+
+  // Define pricing tiers (in cents)
+  let unitAmount = 99; // Starter: 5 credits ($0.99)
+  let creditQuantity = 5;
+  let packageName = 'BoxBuddy Starter Pack (5 Credits)';
+
+  if (packageType === 'pro' || packageType === '50') {
+    unitAmount = 499; // Pro: 50 credits ($4.99)
+    creditQuantity = 50;
+    packageName = 'BoxBuddy Pro Pack (50 Credits)';
+  } else if (packageType === 'enterprise' || packageType === '100') {
+    unitAmount = 999; // Enterprise: 100 credits ($9.99)
+    creditQuantity = 100;
+    packageName = 'BoxBuddy Enterprise Pack (100 Credits)';
+  }
+
+  try {
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      client_reference_id: targetUserId,
+      line_items: [{
+        price_data: {
+          currency: 'usd',
+          product_data: { name: packageName },
+          unit_amount: unitAmount,
+        },
+        quantity: 1,
+      }],
+      mode: 'payment',
+      success_url: `https://boxbuddy-backend.onrender.com/api/stripe/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `https://boxbuddy-backend.onrender.com/api/stripe/cancel`,
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    console.log('💡 Stripe session creation error: ' + err.message);
+    res.status(500).json({ error: 'Failed to create checkout session' });
+  }
+});
+
+// 💳 STRIPE SUCCESS FULFILLMENT ROUTE (WITH AUTO-REFRESH & AUTO-CLOSE JS)
 app.get('/api/stripe/success', async (req, res) => {
   const sessionId = req.query.session_id;
   let tokensAwarded = 5;
@@ -359,8 +403,16 @@ app.get('/api/stripe/success', async (req, res) => {
       <h1>Refill Successful! 🎉</h1>
       <p>Added <strong>${tokensAwarded}</strong> credits to your account.</p>
       <p>Your new total balance is <strong>${newTotalCredits} credits</strong>.</p>
-      <p style="color: #64748b; margin-top: 20px;">You can close this tab and return to shopping.</p>
+      <p style="color: #64748b; margin-top: 20px;">Refreshing your eBay page and closing this tab automatically...</p>
     </div>
+    <script>
+      setTimeout(() => {
+        if (window.opener) {
+          window.opener.location.reload();
+        }
+        window.close();
+      }, 2000);
+    </script>
   `);
 });
 
