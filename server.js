@@ -124,27 +124,28 @@ async function compileLiveCarrierBoxResponse(finalLength, finalWidth, finalHeigh
   let boxHeight = Number(finalHeight);
   const lowerTitle = String(itemTitle).toLowerCase();
 
-  // 1. 🏌️ GOLF CLUBS / SHAFTS RULE (Strict long-box enforcement)
+  // 1. 🧥 APPAREL / SOFT GOODS POLY MAILER RULE (Strict flat poly mailer profile)
+  const isApparel = /(jacket|coat|hoodie|shirt|sweater|anorak|pullover|pants|shorts|jersey|t-shirt|fleece|arc'teryx|patagonia)/i.test(lowerTitle);
+  
+  // 2. 🏌️ GOLF CLUBS / DRIVERS RULE (Expanded to 48-inch long box/tube)
   const isGolfClub = /(golf|shaft|driver|wood|iron|putter|wedge)/i.test(lowerTitle);
-  if (isGolfClub) {
-    boxLength = Math.max(boxLength, 46);
+
+  // 3. 🖨️️ BULKY EQUIPMENT & 3D PRINTERS CARRIER CLASS CAP
+  const isBulkyEquipment = /(printer|3d printer|neptune|bambu|creality|machine|console|receiver|amplifier)/i.test(lowerTitle);
+
+  if (isApparel) {
+    boxLength = 12;
+    boxWidth = 10;
+    boxHeight = 2; // Flat poly mailer profile
+  } else if (isGolfClub) {
+    boxLength = 48;
     boxWidth = 6;
     boxHeight = 6;
-  }
-  // 2. 🧥 APPAREL / SOFT GOODS COMPRESSION RULE (Forces flat mailer profile)
-  else if (/(jacket|coat|hoodie|shirt|sweater|anorak|pullover|pants|shorts|jersey|t-shirt|fleece)/i.test(lowerTitle)) {
-    boxLength = Math.min(boxLength, 13);
-    boxWidth = Math.min(boxWidth, 10);
-    boxHeight = 2; // Flat profile
-  }
-  // 3. 🖨️ BULKY EQUIPMENT & 3D PRINTERS CARRIER CLASS CAP (Consolidates into 16x14x12 standard heavy-duty box)
-  else if (/(printer|3d printer|neptune|bambu|creality|machine|console|receiver|amplifier)/i.test(lowerTitle)) {
+  } else if (isBulkyEquipment) {
     boxLength = 16;
     boxWidth = 14;
     boxHeight = 12;
-  }
-  // 4. 📦 GENERAL DIMENSION CAPPING
-  else if (boxLength > 20 || boxWidth > 20 || boxHeight > 20) {
+  } else if (boxLength > 20 || boxWidth > 20 || boxHeight > 20) {
     boxLength = Math.min(boxLength, 18);
     boxWidth = Math.min(boxWidth, 14);
     boxHeight = Math.min(boxHeight, 12);
@@ -158,13 +159,13 @@ async function compileLiveCarrierBoxResponse(finalLength, finalWidth, finalHeigh
 
   let description = 'Standard Shipping Box';
 
-  if (boxLength <= 12 && boxWidth <= 10 && boxHeight <= 3) {
+  if (isApparel || (boxLength <= 13 && boxWidth <= 11 && boxHeight <= 3)) {
     description = 'Padded Poly Mailer';
   } else if (boxLength <= 16 && boxWidth <= 12 && boxHeight <= 6) {
     description = 'Small Shipping Box';
   } else if (isGolfClub) {
-    description = 'Long Golf Club Box';
-  } else if (/(printer|neptune|bambu|creality|machine)/i.test(lowerTitle)) {
+    description = 'Long Golf Club Tube / Box';
+  } else if (isBulkyEquipment) {
     description = 'Heavy-Duty Equipment Box';
   } else {
     description = 'Medium / Standard Box';
@@ -317,11 +318,9 @@ app.post('/api/optimize', async (req, res) => {
             content: `You are an expert e-commerce logistics packaging engine. Analyze the product title and context to determine the proper UNPACKAGED item dimensions (inches) and weight (ounces).
 
 LOGISTICS DOMAIN RULES TO ENFORCE:
-1. Golf Clubs / Shafts / Drivers / Woods / Irons / Putters: Length MUST be 46-48 inches, Width 4 inches, Height 4 inches. Weight 16-48 oz.
-2. Long or Tubular Items (Fishing rods, posters, baseball bats, ski poles, guitars): Length MUST accurately reflect full item length (usually 36-50 inches).
-3. Apparel / Jackets / Hoodies: Output flat dimensions (length 12-14, width 10-12, height 2-3 inches).
-4. 3D Printers / Heavy Equipment: Output standard dimensions that fit within standard boxes.
-5. Weight Standard: ALWAYS output total weight in OUNCES (1 lb = 16 oz).
+1. Golf Clubs / Shafts / Drivers / Woods / Irons / Putters: Length MUST be 48 inches, Width 6 inches, Height 6 inches. Weight 16-32 oz.
+2. Apparel / Jackets / Hoodies / Arc'teryx / Patagonia: Output flat poly mailer dimensions (length 12, width 10, height 2 inches).
+3. Weight Standard: ALWAYS output total weight in OUNCES (1 lb = 16 oz).
 
 Output ONLY a valid JSON object: {"length": number, "width": number, "height": number, "weight": number}` 
           },
