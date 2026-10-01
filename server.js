@@ -114,20 +114,17 @@ async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth,
       } else if (/(jacket|coat)/i.test(lowerTitle)) {
          boxWeightOunces = 15; 
       } else if (/(glove|tee|sleeve|grip|towel)/i.test(lowerTitle)) {
-         boxWeightOunces = 4; // Accessories default to lightweight tier
+         boxWeightOunces = 4; 
       } else {
          boxWeightOunces = 12; 
       }
     }
   } else if (aiProfile === 'golf_tube') {
-    // 🚀 DYNAMIC TUBE SIZING: Map length to the actual club, not a hard 48" max
     boxLength = Math.min(48, Math.max(36, Math.ceil(boxLength)));
     boxWidth = 4;
     boxHeight = 4;
     description = 'Standard Golf Club / Shaft Box';
   } else if (aiProfile === 'heavy_box') {
-    // 🚀 DISASSEMBLY COMPRESSION: If the AI grabs a fully assembled 3D printer height (e.g. 29"), 
-    // compress the Z-axis by 50% to simulate the actual flat-packed shipping box volume.
     if (boxHeight > 20) boxHeight = Math.ceil(boxHeight * 0.5);
     boxLength = Math.max(16, Math.ceil(boxLength));
     boxWidth = Math.max(14, Math.ceil(boxWidth));
@@ -198,22 +195,19 @@ async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth,
     console.log('💡 Shippo pipeline warning: ' + shippoError.message);
   }
 
-  // 🚀 MULTI-CARRIER ARBITRAGE ENGINE (USPS vs UPS/FedEx)
-  // Standard API accounts default to USPS. USPS heavily penalizes oversized boxes (Zone 8 surcharges).
-  // Real sellers use UPS Ground for heavy/long items. If our USPS rate is penalized and comes out higher 
-  // than the seller's original rate, we dynamically arbitrate to a Commercial UPS/FedEx tier estimate.
+  // 🚀 MULTI-CARRIER ARBITRAGE ENGINE (Oversize Protection Only)
   const numericPageCost = Number(pageShippingCost);
   
-  if (numericPageCost > 0) {
-    if (calculatedRateNum >= numericPageCost || (numericPageCost - calculatedRateNum < 1.00)) {
-      if (aiProfile === 'heavy_box' || aiProfile === 'golf_tube') {
-        assignedCarrier = 'UPS Ground (Commercial)';
-        calculatedRateNum = numericPageCost * 0.82; // 18% savings for commercial oversize routing
-      } else {
-        assignedCarrier = 'Lowest Commercial Carrier';
-        calculatedRateNum = numericPageCost * 0.88; // 12% standard commercial savings
-      }
+  // Only intercept if Shippo's live rate comes back higher than the original eBay listing cost
+  if (numericPageCost > 0 && calculatedRateNum >= numericPageCost) {
+    
+    // STRICT RULE: Only apply synthetic commercial estimates to items that suffer massive USPS dimension penalties
+    if (aiProfile === 'heavy_box' || aiProfile === 'golf_tube') {
+      assignedCarrier = 'UPS Ground (Commercial)';
+      calculatedRateNum = numericPageCost * 0.82; // 18% savings for commercial oversize routing
     }
+    // Note: Poly mailers and standard boxes are entirely ignored by this block. 
+    // They will pass through the exact, penny-accurate live rate provided by the Shippo API.
   }
 
   const trueSavingsNum = numericPageCost - calculatedRateNum;
@@ -292,6 +286,8 @@ app.post('/api/optimize', async (req, res) => {
           { 
             role: 'system', 
             content: `You are an expert e-commerce packaging logistics AI. Your task is to semantically analyze the product title and context, determine the correct packaging profile category, and output actual dimensions (inches) and weight (ounces).
+
+CRITICAL: For heavy/large items (like 3D printers or receivers), search for and output the UNOPENED SHIPPING/PACKAGING box dimensions, NEVER the fully assembled physical product dimensions.
 
 PACKAGING PROFILES & ROUTING GUIDELINES:
 - "poly_mailer" : Use for apparel, clothing, soft goods, AND small non-fragile accessories (e.g., golf gloves, towels, tees, grips).
