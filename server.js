@@ -42,7 +42,7 @@ function sanitizeTitleForSearch(rawTitle) {
     .trim();
 }
 
-// ⚖️ WEIGHT PARSER HELPER
+// ⚖️️ WEIGHT PARSER HELPER
 function parseToOunces(val) {
   if (!val) return null;
   const strVal = String(val).toLowerCase().trim();
@@ -92,7 +92,7 @@ async function detectBuyerZipFromIP(req) {
   return '90210';
 }
 
-// 🚀 SHIPPO LOGISTICS ENGINE: PROFILE-DRIVEN LEAST-COST ROUTING & WEIGHT CLAMPING
+// 🚀 SHIPPO LOGISTICS ENGINE: PROFILE-DRIVEN LEAST-COST ROUTING & DYNAMIC SIZING
 async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth, finalHeight, finalWeight, pageShippingCost, cleanOriginZip, cleanDestZip, itemTitle = '') {
   let boxLength = Number(finalLength);
   let boxWidth = Number(finalWidth);
@@ -102,21 +102,23 @@ async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth,
 
   let description = 'Standard Shipping Box';
 
-  // Strictly enforce the AI-determined profiles and intercept lazy weights
+  // 📐 SMART DIMENSIONING: Respect AI extracted sizes for large/standard items, enforce rigid dimensions for mailers/tubes
   if (aiProfile === 'poly_mailer') {
     boxLength = 12;
     boxWidth = 10;
     boxHeight = 2;
     description = 'Padded Poly Mailer';
     
-    // 🚀 WEIGHT OVERRIDE: Keep soft goods under the 16oz (1lb) penalty threshold
+    // 🚀 WEIGHT OVERRIDE: Keep soft goods and tiny accessories under the 16oz (1lb) penalty threshold
     if (boxWeightOunces >= 16) {
       if (/(parka|heavy|boots|winter)/i.test(lowerTitle)) {
          // Leave heavy items alone
       } else if (/(jacket|coat)/i.test(lowerTitle)) {
-         boxWeightOunces = 15; // Max out the <1lb tier
+         boxWeightOunces = 15; 
+      } else if (/(glove|tee|sleeve|grip|towel)/i.test(lowerTitle)) {
+         boxWeightOunces = 4; // Tiny accessories default to 4oz lightweight tier
       } else {
-         boxWeightOunces = 12; // Standard shirts, shells, and shorts
+         boxWeightOunces = 12; 
       }
     }
   } else if (aiProfile === 'golf_tube') {
@@ -125,27 +127,26 @@ async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth,
     boxHeight = 6;
     description = 'Long Golf Club Tube / Box';
   } else if (aiProfile === 'heavy_box') {
-    boxLength = 16;
-    boxWidth = 14;
-    boxHeight = 12;
+    // 🚀 DYNAMIC SIZING: Use actual item dimensions + 2 inches for protective padding (minimum 16x14x12)
+    boxLength = Math.max(16, Math.ceil(boxLength + 2));
+    boxWidth = Math.max(14, Math.ceil(boxWidth + 2));
+    boxHeight = Math.max(12, Math.ceil(boxHeight + 2));
     description = 'Heavy-Duty Equipment Box';
-  } else if (aiProfile === 'small_box' || (boxLength <= 12 && boxWidth <= 10 && boxHeight <= 6)) {
-    boxLength = Math.max(boxLength, 8);
-    boxWidth = Math.max(boxWidth, 6);
-    boxHeight = Math.max(boxHeight, 4);
-    description = 'Small Shipping Box';
+  } else if (aiProfile === 'small_box') {
+    // Enforce a minimum viable protective box size
+    boxLength = Math.max(Math.ceil(boxLength + 1), 8);
+    boxWidth = Math.max(Math.ceil(boxWidth + 1), 6);
+    boxHeight = Math.max(Math.ceil(boxHeight + 1), 4);
+    description = 'Small Shipping Box (Protective)';
     
-    // 🚀 WEIGHT OVERRIDE: Tiny accessories must get the 4oz micro-tier
-    if (/(glove|tee|sleeve|adapter|grip)/i.test(lowerTitle)) {
+    if (/(adapter|sleeve)/i.test(lowerTitle)) {
       boxWeightOunces = 4;
     }
   } else {
-    // Sanity check cap for oversized standard boxes
-    if (boxLength > 24 || boxWidth > 24 || boxHeight > 24) {
-      boxLength = Math.min(boxLength, 18);
-      boxWidth = Math.min(boxWidth, 14);
-      boxHeight = Math.min(boxHeight, 12);
-    }
+    // standard_box: Dynamically pad actual item dimensions by 1 inch
+    boxLength = Math.max(10, Math.ceil(boxLength + 1));
+    boxWidth = Math.max(8, Math.ceil(boxWidth + 1));
+    boxHeight = Math.max(4, Math.ceil(boxHeight + 1));
   }
 
   let calculatedRateNum = 7.45; 
@@ -276,13 +277,13 @@ app.post('/api/optimize', async (req, res) => {
         messages: [
           { 
             role: 'system', 
-            content: `You are an expert e-commerce packaging logistics AI. Your task is to semantically analyze the product title and context, determine the correct packaging profile category, and output dimensions (inches) and weight (ounces).
+            content: `You are an expert e-commerce packaging logistics AI. Your task is to semantically analyze the product title and context, determine the correct packaging profile category, and output actual dimensions (inches) and weight (ounces).
 
-PACKAGING PROFILES & WEIGHT GUIDELINES:
-- "poly_mailer" : Use for all apparel, clothing, jackets, shirts, hats, and soft goods. (Output weight between 8-15 oz).
-- "golf_tube" : Use ONLY for FULL-LENGTH golf clubs, drivers, woods, and long shafts. (Output weight 24-32 oz).
-- "small_box" : Use for small electronics, headphones, golf gloves, tees, grips, adapter sleeves, and small accessories. (Golf gloves/sleeves: 4 oz. Headphones: 32 oz).
-- "heavy_box" : Use for large, bulky, or heavy items like 3D printers, home theater receivers, speakers.
+PACKAGING PROFILES & ROUTING GUIDELINES:
+- "poly_mailer" : Use for apparel, clothing, soft goods, AND small non-fragile accessories (e.g., golf gloves, towels, tees, grips).
+- "golf_tube" : Use ONLY for FULL-LENGTH golf clubs, drivers, woods, and long shafts.
+- "small_box" : Use ONLY for small FRAGILE items (e.g., electronics, headphones, fragile adapter sleeves).
+- "heavy_box" : Use for large, bulky, or heavy items (e.g., 3D printers, receivers). **MUST extract ACTUAL UNPACKAGED DIMENSIONS from context.**
 - "standard_box" : Use for shoes, household items, or anything else.
 
 Output ONLY a valid JSON object matching this structure:
