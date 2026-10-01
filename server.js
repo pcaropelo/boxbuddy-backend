@@ -18,7 +18,7 @@ const { Shippo } = require('shippo');
 // 🛡️ SECURED API CLIENT INITIALIZATIONS
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const shippo = new Shippo({ 
-  apiKey: process.env.SHIPPO_API_KEY || process.env.SHIPPO_TOKEN 
+  apiKeyHeader: `ShippoToken ${process.env.SHIPPO_API_KEY}` 
 });
 
 const app = express();
