@@ -107,7 +107,7 @@ async function detectBuyerZipFromIP(req) {
     let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
     if (clientIp.includes(',')) clientIp = clientIp.split(',')[0].trim();
     
-    const geoResponse = await axios.get(`http://ip-api.com/json/${clientIp === '::1' || clientIp === '127.0.0.1' ? '' : clientIp}`);
+    const geoResponse = await axios.get(`[http://ip-api.com/json/$](http://ip-api.com/json/$){clientIp === '::1' || clientIp === '127.0.0.1' ? '' : clientIp}`);
     if (geoResponse.data && geoResponse.data.zip) {
       return geoResponse.data.zip;
     }
@@ -282,7 +282,7 @@ app.post('/api/optimize', async (req, res) => {
 
     try {
       const payloadObject = { q: cleanedTitle + ' technical specification dimensions length width height weight' };
-      const serperResponse = await axios.post('https://serper.dev', payloadObject, {
+      const serperResponse = await axios.post('[https://serper.dev](https://serper.dev)', payloadObject, {
         headers: { 'X-API-KEY': process.env.SERPER_API_KEY, 'Content-Type': 'application/json' }
       });
       if (serperResponse.data && serperResponse.data.organic) {
@@ -314,4 +314,138 @@ Output ONLY a valid JSON object: {"length": number, "width": number, "height": n
       });
 
       let rawText = aiResponse.choices[0].message.content.trim();
-      rawText = rawText.replace(/```json/g, '').replace(/
+      rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
+      const parsedData = JSON.parse(rawText);
+
+      finalLength = Number(parsedData.length) || finalLength;
+      finalWidth = Number(parsedData.width) || finalWidth;
+      finalHeight = Number(parsedData.height) || finalHeight;
+      finalWeight = Number(parsedData.weight) || finalWeight;
+    } catch (aiErr) {}
+
+    const responseData = await compileLiveCarrierBoxResponse(finalLength, finalWidth, finalHeight, parsedWeight || finalWeight, pageShippingCost, cleanOriginZip, cleanDestZip, title);
+    responseData.remainingCredits = newBalance;
+    return res.json(responseData);
+
+  } catch (error) {
+    res.json({ success: false, error: 'Internal Error' });
+  }
+});
+
+// 🪙 GET USER CREDIT BALANCE ROUTE
+app.get('/api/credits', async (req, res) => {
+  const userId = req.query.browserExtensionId || 'anonymous_user_guest';
+  let userRecord = await db.findOne({ userId });
+  if (!userRecord) {
+    userRecord = await db.insert({ userId, credits: 3 });
+  }
+  res.json({ credits: userRecord.credits });
+});
+
+// 💳 CREATE DYNAMIC STRIPE CHECKOUT SESSION (GUARANTEES EXTENSION ID ATTACHMENT)
+app.post('/api/create-checkout-session', async (req, res) => {
+  const { browserExtensionId, packageType } = req.body;
+  const targetUserId = browserExtensionId || 'anonymous_user_guest';
+
+  // Define pricing tiers (in cents)
+  let unitAmount = 99; // Starter: 5 credits ($0.99)
+  let creditQuantity = 5;
+  let packageName = 'BoxBuddy Starter Pack (5 Credits)';
+
+  if (packageType === 'pro' || packageType === '50') {
+    unitAmount = 499; // Pro: 50 credits ($4.99)
+    creditQuantity = 50;
+    packageName = 'BoxBuddy Pro Pack (50 Credits)';
+  } else if (packageType === 'enterprise' || packageType === '100') {
+    unitAmount = 999; // Enterprise: 100 credits ($9.99)
+    creditQuantity = 100;
+    packageName = 'BoxBuddy Enterprise Pack (100 Credits)';
+  }
+
+  try {
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      client_reference_id: targetUserId,
+      line_items: [{
+        price_data: {
+          currency: 'usd',
+          product_data: { name: packageName },
+          unit_amount: unitAmount,
+        },
+        quantity: 1,
+      }],
+      mode: 'payment',
+      success_url: `[https://boxbuddy-backend.onrender.com/api/stripe/success?session_id=](https://boxbuddy-backend.onrender.com/api/stripe/success?session_id=){CHECKOUT_SESSION_ID}`,
+      cancel_url: `[https://boxbuddy-backend.onrender.com/api/stripe/cancel](https://boxbuddy-backend.onrender.com/api/stripe/cancel)`,
+    });
+
+    res.json({ url: session.url });
+  } catch (err) {
+    console.log('💡 Stripe session creation error: ' + err.message);
+    res.status(500).json({ error: 'Failed to create checkout session' });
+  }
+});
+
+// 💳 STRIPE SUCCESS FULFILLMENT ROUTE (WITH CLEAR USER INSTRUCTIONS)
+app.get('/api/stripe/success', async (req, res) => {
+  const sessionId = req.query.session_id;
+  let tokensAwarded = 5;
+  let targetUserId = 'anonymous_user_guest';
+
+  try {
+    if (sessionId && sessionId.startsWith('cs_')) {
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+      const totalPaid = session.amount_total;
+      
+      if (session.client_reference_id) {
+        targetUserId = session.client_reference_id;
+      }
+
+      if (totalPaid >= 900) tokensAwarded = 100;
+      else if (totalPaid >= 400) tokensAwarded = 50;
+      else tokensAwarded = 5;
+    }
+  } catch (err) {
+    console.log('💡 Stripe session lookup warning: ' + err.message);
+  }
+
+  let userRecord = await db.findOne({ userId: targetUserId });
+  if (!userRecord) {
+    await db.insert({ userId: targetUserId, credits: tokensAwarded });
+  } else {
+    await db.update({ userId: targetUserId }, { $inc: { credits: tokensAwarded } });
+  }
+
+  const updatedRecord = await db.findOne({ userId: targetUserId });
+  const newTotalCredits = updatedRecord ? updatedRecord.credits : tokensAwarded;
+
+  res.send(`
+    <div style="font-family: sans-serif; text-align: center; margin-top: 50px;">
+      <h1>Refill Successful! 🎉</h1>
+      <p>Added <strong>${tokensAwarded}</strong> credits to your account.</p>
+      <p>Your new total balance is <strong>${newTotalCredits} credits</strong>.</p>
+      <div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px; border-radius: 8px; max-width: 400px; margin: 20px auto; color: #166534;">
+        <p style="margin: 0; font-weight: bold;">You're all set!</p>
+        <p style="margin: 5px 0 0 0; font-size: 14px;">Go back to your eBay shopping tab and refresh the page to see your updated balance.</p>
+      </div>
+      <p style="color: #64748b; margin-top: 20px; font-size: 13px;">You can now close this tab.</p>
+    </div>
+  `);
+});
+
+// 🛠️ ADMIN ROUTE: INCREMENT CREDITS FOR ANY USER ID
+app.get('/api/admin/refill', async (req, res) => {
+  const userId = req.query.userId || 'kaheokadbghchegchjldjpmpmapfhijf';
+  let userRecord = await db.findOne({ userId });
+  if (!userRecord) {
+    await db.insert({ userId, credits: 50 });
+  } else {
+    await db.update({ userId }, { $inc: { credits: 50 } });
+  }
+  const updated = await db.findOne({ userId });
+  res.send(`Wallet updated successfully for user ${userId}! Added 50 credits. New total: ${updated.credits}`);
+});
+
+app.listen(PORT, () => {
+  console.log('🚀 BoxBuddy Secured Shippo Production Infrastructure active on port ' + PORT);
+});
