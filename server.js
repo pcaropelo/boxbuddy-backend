@@ -2,7 +2,7 @@
 // PACKSPEC AI - BOXBUDDY SECURED BACKEND INFRASTRUCTURE
 // ==========================================================================
 
-// 🌐 NODE.JS ENVIRONMENT POLYFILL (Fixes 'window is not defined' in Shippo SDK)
+// 🌐 NODE.JS ENVIRONMENT POLYFILL
 if (typeof window === 'undefined') {
   global.window = global;
 }
@@ -54,110 +54,88 @@ function parseToOunces(val) {
   return num;
 }
 
-// 📍 RESOLVE CITY/STATE OR TEXT INTO A VALID 5-DIGIT US ZIP CODE (WITH INT'L & PLACEHOLDER GUARDRAILS)
+// 📍 RESOLVE CITY/STATE OR TEXT INTO A VALID 5-DIGIT US ZIP CODE
 async function resolveToZipCode(locationStr) {
   if (!locationStr) return '07030';
-
   if (/^(00000|00001|00000-0000|n\/a|unknown|none)$/i.test(locationStr.trim()) || locationStr.includes('00000')) {
-    console.log(`⚠️ Placeholder origin ZIP detected ("${locationStr}"). Applying default fallback ZIP.`);
     return '07030';
   }
-  
   const isInternational = /(japan|china|uk|united kingdom|canada|germany|australia|hong kong|taiwan|korea|france|italy)/i.test(locationStr);
-  if (isInternational) {
-    console.log(`🌐 International origin seller detected (${locationStr}). Applying US import port fallback ZIP.`);
-    return '90210'; 
-  }
-
+  if (isInternational) return '90210'; 
+  
   const zipMatch = String(locationStr).match(/\b\d{5}\b/);
-  if (zipMatch && zipMatch[0] !== '00000' && zipMatch[0] !== '00001') {
-    return zipMatch[0];
-  }
+  if (zipMatch && zipMatch[0] !== '00000' && zipMatch[0] !== '00001') return zipMatch[0];
 
   try {
     const aiResponse = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { 
-          role: 'system', 
-          content: 'Convert the given US city/state location into a valid 5-digit US postal ZIP code. Output ONLY the 5-digit ZIP number.' 
-        },
+        { role: 'system', content: 'Convert the given US city/state location into a valid 5-digit US postal ZIP code. Output ONLY the 5-digit ZIP number.' },
         { role: 'user', content: locationStr }
       ],
       temperature: 0.0,
     });
     const resolvedZip = aiResponse.choices[0].message.content.trim();
-    if (/^\d{5}$/.test(resolvedZip) && resolvedZip !== '00000' && resolvedZip !== '00001') {
-      return resolvedZip;
-    }
-  } catch (err) {
-    console.log('💡 Location resolution fallback triggered.');
-  }
-
+    if (/^\d{5}$/.test(resolvedZip) && resolvedZip !== '00000' && resolvedZip !== '00001') return resolvedZip;
+  } catch (err) {}
   return '07030';
 }
 
-// 🌐 AUTO-DETECT BUYER DESTINATION ZIP FROM CLIENT IP ADDRESS
+// 🌐 AUTO-DETECT BUYER DESTINATION ZIP
 async function detectBuyerZipFromIP(req) {
   try {
     let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
     if (clientIp.includes(',')) clientIp = clientIp.split(',')[0].trim();
-    
     const geoResponse = await axios.get(`http://ip-api.com/json/${clientIp === '::1' || clientIp === '127.0.0.1' ? '' : clientIp}`);
-    if (geoResponse.data && geoResponse.data.zip) {
-      return geoResponse.data.zip;
-    }
-  } catch (err) {
-    console.log('💡 IP Geolocation warning: ' + err.message);
-  }
+    if (geoResponse.data && geoResponse.data.zip) return geoResponse.data.zip;
+  } catch (err) {}
   return '90210';
 }
 
-// HIGH-PRECISION DYNAMIC SHIPPO LOGISTICS MATRIX ENGINE (AUTOMATED SINGLE LOWEST-COST SELECTOR)
-async function compileLiveCarrierBoxResponse(finalLength, finalWidth, finalHeight, finalWeight, pageShippingCost, cleanOriginZip, cleanDestZip, itemTitle = '') {
+// 🚀 SHIPPO LOGISTICS ENGINE: PROFILE-DRIVEN LEAST-COST ROUTING
+async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth, finalHeight, finalWeight, pageShippingCost, cleanOriginZip, cleanDestZip) {
   let boxLength = Number(finalLength);
   let boxWidth = Number(finalWidth);
   let boxHeight = Number(finalHeight);
-  const lowerTitle = String(itemTitle).toLowerCase();
-
-  // Structural constraints for specialized items (Golf Clubs, Bulky Equipment)
-  const isGolfClub = /(golf|shaft|driver|wood|iron|putter|wedge)/i.test(lowerTitle);
-  const isBulkyEquipment = /(printer|3d printer|neptune|bambu|creality|machine|console|receiver|amplifier)/i.test(lowerTitle);
-
-  if (isGolfClub) {
-    boxLength = 48;
-    boxWidth = 6;
-    boxHeight = 6;
-  } else if (isBulkyEquipment) {
-    boxLength = 16;
-    boxWidth = 14;
-    boxHeight = 12;
-  } else if (boxLength > 24 || boxWidth > 24 || boxHeight > 24) {
-    boxLength = Math.min(boxLength, 18);
-    boxWidth = Math.min(boxWidth, 14);
-    boxHeight = Math.min(boxHeight, 12);
-  }
-
   const boxWeightOunces = Math.max(1, Math.round(Number(finalWeight)));
 
   let description = 'Standard Shipping Box';
-  if (boxLength <= 13 && boxWidth <= 11 && boxHeight <= 3) {
+
+  // Strictly enforce the AI-determined profiles to lock in absolute lowest dimensional classes
+  if (aiProfile === 'poly_mailer') {
+    boxLength = 12;
+    boxWidth = 10;
+    boxHeight = 2;
     description = 'Padded Poly Mailer';
-  } else if (isGolfClub) {
+  } else if (aiProfile === 'golf_tube') {
+    boxLength = 48;
+    boxWidth = 6;
+    boxHeight = 6;
     description = 'Long Golf Club Tube / Box';
-  } else if (isBulkyEquipment) {
+  } else if (aiProfile === 'heavy_box') {
+    boxLength = 16;
+    boxWidth = 14;
+    boxHeight = 12;
     description = 'Heavy-Duty Equipment Box';
-  } else if (boxLength <= 16 && boxWidth <= 12 && boxHeight <= 6) {
+  } else if (aiProfile === 'small_box' || (boxLength <= 12 && boxWidth <= 10 && boxHeight <= 6)) {
+    boxLength = Math.max(boxLength, 8);
+    boxWidth = Math.max(boxWidth, 6);
+    boxHeight = Math.max(boxHeight, 4);
     description = 'Small Shipping Box';
   } else {
-    description = 'Medium / Standard Box';
+    // Sanity check cap for oversized standard boxes
+    if (boxLength > 24 || boxWidth > 24 || boxHeight > 24) {
+      boxLength = Math.min(boxLength, 18);
+      boxWidth = Math.min(boxWidth, 14);
+      boxHeight = Math.min(boxHeight, 12);
+    }
   }
 
   let calculatedRateNum = 7.45; 
   let assignedCarrier = 'USPS Ground Advantage';
 
   try {
-    console.log(`📦 SHIPPO ENGINE: Package [${boxLength}x${boxWidth}x${boxHeight} in, ${boxWeightOunces} oz]`);
+    console.log(`📦 SHIPPO ENGINE: [Profile: ${aiProfile}] Package [${boxLength}x${boxWidth}x${boxHeight} in, ${boxWeightOunces} oz]`);
     console.log(`📍 SHIPPO ROUTE: Origin ZIP (${cleanOriginZip}) ➡️ Destination ZIP (${cleanDestZip})`);
 
     const shipment = await shippo.shipments.create({
@@ -182,7 +160,7 @@ async function compileLiveCarrierBoxResponse(finalLength, finalWidth, finalHeigh
     });
 
     if (shipment && shipment.rates && shipment.rates.length > 0) {
-      // 🚀 AUTOMATICALLY ISOLATE THE SINGLE LOWEST-COST RATE ACROSS ALL CARRIERS
+      // Automatically isolate the single lowest-cost rate across all providers
       const cheapestRate = shipment.rates.reduce((min, rate) => {
         const minVal = parseFloat(min.rate || min.amount || 0);
         const rateVal = parseFloat(rate.rate || rate.amount || 0);
@@ -235,19 +213,15 @@ app.post('/api/optimize', async (req, res) => {
   try {
     let userRecord = await db.findOne({ userId });
     if (!userRecord) { userRecord = await db.insert({ userId, credits: 3 }); }
-
     if (userRecord.credits <= 0) {
-      console.log('⚠️ BILLING INTERCEPTED: Account empty (0 credits). Sending payment prompt...');
       return res.json({ success: false, requiresPayment: true });
     }
 
     const newBalance = userRecord.credits - 1;
     await db.update({ userId }, { $set: { credits: newBalance } });
 
-    // 📍 DYNAMIC ORIGIN & DESTINATION ZIP RESOLUTION
     const cleanOriginZip = await resolveToZipCode(originLocation);
     let cleanDestZip = '90210';
-
     if (destinationZip && /^\d{5}$/.test(String(destinationZip).trim())) {
       cleanDestZip = String(destinationZip).trim();
     } else if (destinationZip) {
@@ -265,18 +239,6 @@ app.post('/api/optimize', async (req, res) => {
       }
     }
 
-    const hasFullDimensions = itemSpecifics && itemSpecifics.length && itemSpecifics.width && itemSpecifics.height;
-    if (hasFullDimensions) {
-      const specL = parseFloat(itemSpecifics.length);
-      const specW = parseFloat(itemSpecifics.width);
-      const specH = parseFloat(itemSpecifics.height);
-      if (!isNaN(specL) && !isNaN(specW) && !isNaN(specH)) {
-        const responseData = await compileLiveCarrierBoxResponse(specL, specW, specH, parsedWeight || 16, pageShippingCost, cleanOriginZip, cleanDestZip, title);
-        responseData.remainingCredits = newBalance;
-        return res.json(responseData);
-      }
-    }
-
     const cleanedTitle = sanitizeTitleForSearch(title);
     let searchContext = '';
 
@@ -290,7 +252,7 @@ app.post('/api/optimize', async (req, res) => {
       }
     } catch (searchErr) {}
 
-    let finalLength = 12, finalWidth = 10, finalHeight = 4, finalWeight = 16;
+    let finalLength = 12, finalWidth = 10, finalHeight = 4, finalWeight = 16, aiProfile = 'standard_box';
 
     try {
       const aiResponse = await openai.chat.completions.create({
@@ -298,13 +260,17 @@ app.post('/api/optimize', async (req, res) => {
         messages: [
           { 
             role: 'system', 
-            content: `You are an expert e-commerce logistics packaging engine. Analyze the product title and context to determine the proper UNPACKAGED item dimensions (inches) and weight (ounces).
+            content: `You are an expert e-commerce packaging logistics AI. Your task is to semantically analyze the product title and context, determine the correct packaging profile category, and output dimensions (inches) and weight (ounces).
 
-LOGISTICS DOMAIN RULES:
-1. Golf Clubs / Shafts / Drivers / Woods / Irons / Putters: Length MUST be 48 inches, Width 6 inches, Height 6 inches. Weight 16-32 oz.
-2. Weight Standard: ALWAYS output total weight in OUNCES (1 lb = 16 oz).
+PACKAGING PROFILES:
+- "poly_mailer" : Use for all apparel, clothing, jackets, shirts, hats, and soft goods.
+- "golf_tube" : Use ONLY for FULL-LENGTH golf clubs, drivers, woods, and long shafts.
+- "small_box" : Use for small electronics, headphones, golf gloves, tees, grips, adapter sleeves, and small accessories.
+- "heavy_box" : Use for large, bulky, or heavy items like 3D printers, home theater receivers, speakers.
+- "standard_box" : Use for shoes, household items, or anything else.
 
-Output ONLY a valid JSON object: {"length": number, "width": number, "height": number, "weight": number}` 
+Output ONLY a valid JSON object matching this structure:
+{"packagingProfile": "poly_mailer|golf_tube|small_box|heavy_box|standard_box", "length": number, "width": number, "height": number, "weight": number}` 
           },
           { role: 'user', content: 'Title: ' + title + '\nContext: ' + searchContext }
         ],
@@ -315,13 +281,15 @@ Output ONLY a valid JSON object: {"length": number, "width": number, "height": n
       rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
       const parsedData = JSON.parse(rawText);
 
+      aiProfile = parsedData.packagingProfile || 'standard_box';
       finalLength = Number(parsedData.length) || finalLength;
       finalWidth = Number(parsedData.width) || finalWidth;
       finalHeight = Number(parsedData.height) || finalHeight;
       finalWeight = Number(parsedData.weight) || finalWeight;
     } catch (aiErr) {}
 
-    const responseData = await compileLiveCarrierBoxResponse(finalLength, finalWidth, finalHeight, parsedWeight || finalWeight, pageShippingCost, cleanOriginZip, cleanDestZip, title);
+    // Pass the semantic AI Profile directly to the logistics engine
+    const responseData = await compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth, finalHeight, parsedWeight || finalWeight, pageShippingCost, cleanOriginZip, cleanDestZip);
     responseData.remainingCredits = newBalance;
     return res.json(responseData);
 
@@ -334,13 +302,11 @@ Output ONLY a valid JSON object: {"length": number, "width": number, "height": n
 app.get('/api/credits', async (req, res) => {
   const userId = req.query.browserExtensionId || 'anonymous_user_guest';
   let userRecord = await db.findOne({ userId });
-  if (!userRecord) {
-    userRecord = await db.insert({ userId, credits: 3 });
-  }
+  if (!userRecord) { userRecord = await db.insert({ userId, credits: 3 }); }
   res.json({ credits: userRecord.credits });
 });
 
-// 💳 CREATE DYNAMIC STRIPE CHECKOUT SESSION (GUARANTEES EXTENSION ID ATTACHMENT)
+// 💳 CREATE DYNAMIC STRIPE CHECKOUT SESSION
 app.post('/api/create-checkout-session', async (req, res) => {
   const { browserExtensionId, packageType } = req.body;
   const targetUserId = browserExtensionId || 'anonymous_user_guest';
@@ -350,68 +316,43 @@ app.post('/api/create-checkout-session', async (req, res) => {
   let packageName = 'BoxBuddy Starter Pack (5 Credits)';
 
   if (packageType === 'pro' || packageType === '50') {
-    unitAmount = 499; 
-    creditQuantity = 50;
-    packageName = 'BoxBuddy Pro Pack (50 Credits)';
+    unitAmount = 499; creditQuantity = 50; packageName = 'BoxBuddy Pro Pack (50 Credits)';
   } else if (packageType === 'enterprise' || packageType === '100') {
-    unitAmount = 999; 
-    creditQuantity = 100;
-    packageName = 'BoxBuddy Enterprise Pack (100 Credits)';
+    unitAmount = 999; creditQuantity = 100; packageName = 'BoxBuddy Enterprise Pack (100 Credits)';
   }
 
   try {
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       client_reference_id: targetUserId,
-      line_items: [{
-        price_data: {
-          currency: 'usd',
-          product_data: { name: packageName },
-          unit_amount: unitAmount,
-        },
-        quantity: 1,
-      }],
+      line_items: [{ price_data: { currency: 'usd', product_data: { name: packageName }, unit_amount: unitAmount }, quantity: 1 }],
       mode: 'payment',
       success_url: `https://boxbuddy-backend.onrender.com/api/stripe/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `https://boxbuddy-backend.onrender.com/api/stripe/cancel`,
     });
-
     res.json({ url: session.url });
   } catch (err) {
-    console.log('💡 Stripe session creation error: ' + err.message);
     res.status(500).json({ error: 'Failed to create checkout session' });
   }
 });
 
-// 💳 STRIPE SUCCESS FULFILLMENT ROUTE (WITH CLEAR USER INSTRUCTIONS)
+// 💳 STRIPE SUCCESS FULFILLMENT ROUTE
 app.get('/api/stripe/success', async (req, res) => {
   const sessionId = req.query.session_id;
-  let tokensAwarded = 5;
-  let targetUserId = 'anonymous_user_guest';
+  let tokensAwarded = 5, targetUserId = 'anonymous_user_guest';
 
   try {
     if (sessionId && sessionId.startsWith('cs_')) {
       const session = await stripe.checkout.sessions.retrieve(sessionId);
       const totalPaid = session.amount_total;
-      
-      if (session.client_reference_id) {
-        targetUserId = session.client_reference_id;
-      }
-
-      if (totalPaid >= 900) tokensAwarded = 100;
-      else if (totalPaid >= 400) tokensAwarded = 50;
-      else tokensAwarded = 5;
+      if (session.client_reference_id) targetUserId = session.client_reference_id;
+      if (totalPaid >= 900) tokensAwarded = 100; else if (totalPaid >= 400) tokensAwarded = 50; else tokensAwarded = 5;
     }
-  } catch (err) {
-    console.log('💡 Stripe session lookup warning: ' + err.message);
-  }
+  } catch (err) {}
 
   let userRecord = await db.findOne({ userId: targetUserId });
-  if (!userRecord) {
-    await db.insert({ userId: targetUserId, credits: tokensAwarded });
-  } else {
-    await db.update({ userId: targetUserId }, { $inc: { credits: tokensAwarded } });
-  }
+  if (!userRecord) await db.insert({ userId: targetUserId, credits: tokensAwarded });
+  else await db.update({ userId: targetUserId }, { $inc: { credits: tokensAwarded } });
 
   const updatedRecord = await db.findOne({ userId: targetUserId });
   const newTotalCredits = updatedRecord ? updatedRecord.credits : tokensAwarded;
@@ -425,24 +366,10 @@ app.get('/api/stripe/success', async (req, res) => {
         <p style="margin: 0; font-weight: bold;">You're all set!</p>
         <p style="margin: 5px 0 0 0; font-size: 14px;">Go back to your eBay shopping tab and refresh the page to see your updated balance.</p>
       </div>
-      <p style="color: #64748b; margin-top: 20px; font-size: 13px;">You can now close this tab.</p>
     </div>
   `);
 });
 
-// 🛠️ ADMIN ROUTE: INCREMENT CREDITS FOR ANY USER ID
-app.get('/api/admin/refill', async (req, res) => {
-  const userId = req.query.userId || 'kaheokadbghchegchjldjpmpmapfhijf';
-  let userRecord = await db.findOne({ userId });
-  if (!userRecord) {
-    await db.insert({ userId, credits: 50 });
-  } else {
-    await db.update({ userId }, { $inc: { credits: 50 } });
-  }
-  const updated = await db.findOne({ userId });
-  res.send(`Wallet updated successfully for user ${userId}! Added 50 credits. New total: ${updated.credits}`);
-});
-
 app.listen(PORT, () => {
-  console.log('🚀 BoxBuddy Secured Shippo Production Infrastructure active on port ' + PORT);
+  console.log('🚀 BoxBuddy AI Profile-Driven Infrastructure active on port ' + PORT);
 });
