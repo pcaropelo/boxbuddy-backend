@@ -113,66 +113,41 @@ async function detectBuyerZipFromIP(req) {
   return '90210';
 }
 
-// HIGH-PRECISION DYNAMIC SHIPPO LOGISTICS MATRIX ENGINE
+// HIGH-PRECISION DYNAMIC SHIPPO LOGISTICS MATRIX ENGINE (AUTOMATED SINGLE LOWEST-COST SELECTOR)
 async function compileLiveCarrierBoxResponse(finalLength, finalWidth, finalHeight, finalWeight, pageShippingCost, cleanOriginZip, cleanDestZip, itemTitle = '') {
   let boxLength = Number(finalLength);
   let boxWidth = Number(finalWidth);
   let boxHeight = Number(finalHeight);
   const lowerTitle = String(itemTitle).toLowerCase();
 
-  // Category Detection Flags
-  const isApparel = /(jacket|coat|hoodie|shirt|sweater|anorak|pullover|pants|shorts|jersey|t-shirt|fleece|arc'teryx|patagonia)/i.test(lowerTitle);
+  // Structural constraints for specialized items (Golf Clubs, Bulky Equipment)
   const isGolfClub = /(golf|shaft|driver|wood|iron|putter|wedge)/i.test(lowerTitle);
-  const isHeadphones = /(headphone|earphone|audio|meze|audeze|sennheiser|airpods)/i.test(lowerTitle);
   const isBulkyEquipment = /(printer|3d printer|neptune|bambu|creality|machine|console|receiver|amplifier)/i.test(lowerTitle);
 
-  let pad = 2;
-
-  if (isApparel) {
-    // Soft goods in standard industry padded poly mailer
-    boxLength = 12;
-    boxWidth = 10;
-    boxHeight = 2;
-    pad = 0; 
-  } else if (isGolfClub) {
-    // Standard industry 48" triangular golf club shipping tube/box
+  if (isGolfClub) {
     boxLength = 48;
     boxWidth = 6;
     boxHeight = 6;
-    pad = 0;
-  } else if (isHeadphones) {
-    // Headphones get a protective small box
-    boxLength = Math.max(boxLength, 10);
-    boxWidth = Math.max(boxWidth, 8);
-    boxHeight = Math.max(boxHeight, 5);
   } else if (isBulkyEquipment) {
     boxLength = 16;
     boxWidth = 14;
     boxHeight = 12;
-  } else if (boxLength > 20 || boxWidth > 20 || boxHeight > 20) {
+  } else if (boxLength > 24 || boxWidth > 24 || boxHeight > 24) {
     boxLength = Math.min(boxLength, 18);
     boxWidth = Math.min(boxWidth, 14);
     boxHeight = Math.min(boxHeight, 12);
   }
 
-  const finalBoxLength = Math.max(1, Math.round(boxLength + pad));
-  const finalBoxWidth = Math.max(1, Math.round(boxWidth + pad));
-  const finalBoxHeight = Math.max(1, Math.round(boxHeight + pad));
   const boxWeightOunces = Math.max(1, Math.round(Number(finalWeight)));
 
   let description = 'Standard Shipping Box';
-
-  if (isApparel) {
+  if (boxLength <= 13 && boxWidth <= 11 && boxHeight <= 3) {
     description = 'Padded Poly Mailer';
   } else if (isGolfClub) {
     description = 'Long Golf Club Tube / Box';
-  } else if (isHeadphones) {
-    description = 'Small Shipping Box (Protective)';
   } else if (isBulkyEquipment) {
     description = 'Heavy-Duty Equipment Box';
-  } else if (finalBoxLength <= 12 && finalBoxWidth <= 10 && finalBoxHeight <= 3) {
-    description = 'Padded Poly Mailer';
-  } else if (finalBoxLength <= 16 && finalBoxWidth <= 12 && finalBoxHeight <= 6) {
+  } else if (boxLength <= 16 && boxWidth <= 12 && boxHeight <= 6) {
     description = 'Small Shipping Box';
   } else {
     description = 'Medium / Standard Box';
@@ -182,7 +157,7 @@ async function compileLiveCarrierBoxResponse(finalLength, finalWidth, finalHeigh
   let assignedCarrier = 'USPS Ground Advantage';
 
   try {
-    console.log(`📦 SHIPPO ENGINE: Package [${finalBoxLength}x${finalBoxWidth}x${finalBoxHeight} in, ${boxWeightOunces} oz]`);
+    console.log(`📦 SHIPPO ENGINE: Package [${boxLength}x${boxWidth}x${boxHeight} in, ${boxWeightOunces} oz]`);
     console.log(`📍 SHIPPO ROUTE: Origin ZIP (${cleanOriginZip}) ➡️ Destination ZIP (${cleanDestZip})`);
 
     const shipment = await shippo.shipments.create({
@@ -196,9 +171,9 @@ async function compileLiveCarrierBoxResponse(finalLength, finalWidth, finalHeigh
         country: 'US'
       },
       parcels: [{
-        length: String(finalBoxLength),
-        width: String(finalBoxWidth),
-        height: String(finalBoxHeight),
+        length: String(boxLength),
+        width: String(boxWidth),
+        height: String(boxHeight),
         distanceUnit: 'in',
         weight: String(boxWeightOunces), 
         massUnit: 'oz'
@@ -207,6 +182,7 @@ async function compileLiveCarrierBoxResponse(finalLength, finalWidth, finalHeigh
     });
 
     if (shipment && shipment.rates && shipment.rates.length > 0) {
+      // 🚀 AUTOMATICALLY ISOLATE THE SINGLE LOWEST-COST RATE ACROSS ALL CARRIERS
       const cheapestRate = shipment.rates.reduce((min, rate) => {
         const minVal = parseFloat(min.rate || min.amount || 0);
         const rateVal = parseFloat(rate.rate || rate.amount || 0);
@@ -225,7 +201,7 @@ async function compileLiveCarrierBoxResponse(finalLength, finalWidth, finalHeigh
       }
       
       assignedCarrier = (cheapestRate.provider || 'Carrier') + ' ' + serviceName;
-      console.log('🎯 SHIPPO RATE SECURED -> ' + assignedCarrier + ': $' + calculatedRateNum);
+      console.log('🎯 LOWEST SHIPPO RATE SECURED -> ' + assignedCarrier + ': $' + calculatedRateNum);
     }
   } catch (shippoError) {
     console.log('💡 Shippo pipeline warning: ' + shippoError.message);
@@ -238,7 +214,7 @@ async function compileLiveCarrierBoxResponse(finalLength, finalWidth, finalHeigh
   return {
     success: true,
     boxModel: description,
-    dimensions: finalBoxLength + ' x ' + finalBoxWidth + ' x ' + finalBoxHeight + ' in',
+    dimensions: boxLength + ' x ' + boxWidth + ' x ' + boxHeight + ' in',
     liveRate: '$' + calculatedRateNum.toFixed(2),
     carrier: assignedCarrier,
     buttonTextBuyer: isSaving ? 'Optimized! Saved ' + formattedSavings + ' 🎉' : 'Alternative Rate: $' + calculatedRateNum.toFixed(2),
@@ -324,11 +300,9 @@ app.post('/api/optimize', async (req, res) => {
             role: 'system', 
             content: `You are an expert e-commerce logistics packaging engine. Analyze the product title and context to determine the proper UNPACKAGED item dimensions (inches) and weight (ounces).
 
-LOGISTICS DOMAIN RULES TO ENFORCE:
+LOGISTICS DOMAIN RULES:
 1. Golf Clubs / Shafts / Drivers / Woods / Irons / Putters: Length MUST be 48 inches, Width 6 inches, Height 6 inches. Weight 16-32 oz.
-2. Apparel / Jackets / Hoodies / Arc'teryx / Patagonia: Output flat poly mailer dimensions (length 12, width 10, height 2 inches).
-3. Audio Headphones / Electronics: Output protective box dimensions (length 10, width 8, height 5 inches).
-4. Weight Standard: ALWAYS output total weight in OUNCES (1 lb = 16 oz).
+2. Weight Standard: ALWAYS output total weight in OUNCES (1 lb = 16 oz).
 
 Output ONLY a valid JSON object: {"length": number, "width": number, "height": number, "weight": number}` 
           },
