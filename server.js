@@ -119,10 +119,21 @@ async function detectBuyerZipFromIP(req) {
 
 // HIGH-PRECISION DYNAMIC SHIPPO LOGISTICS MATRIX ENGINE
 async function compileLiveCarrierBoxResponse(finalLength, finalWidth, finalHeight, finalWeight, pageShippingCost, cleanOriginZip, cleanDestZip) {
-  const pad = (Number(finalHeight) <= 3) ? 1 : 2;
-  const boxLength = Math.max(1, Math.round(Number(finalLength) + pad));
-  const boxWidth = Math.max(1, Math.round(Number(finalWidth) + pad));
-  const boxHeight = Math.max(1, Math.round(Number(finalHeight) + pad));
+  // 📦 STANDARD BOX TIER MAPPING & CAPPING (Prevents massive DIM weight spikes)
+  let boxLength = Number(finalLength);
+  let boxWidth = Number(finalWidth);
+  let boxHeight = Number(finalHeight);
+
+  if (boxLength > 20 || boxWidth > 20 || boxHeight > 20) {
+    boxLength = Math.min(boxLength, 18);
+    boxWidth = Math.min(boxWidth, 14);
+    boxHeight = Math.min(boxHeight, 12);
+  }
+
+  const pad = (Number(boxHeight) <= 3) ? 1 : 2;
+  boxLength = Math.max(1, Math.round(boxLength + pad));
+  boxWidth = Math.max(1, Math.round(boxWidth + pad));
+  boxHeight = Math.max(1, Math.round(boxHeight + pad));
   const boxWeightOunces = Math.max(1, Math.round(Number(finalWeight)));
 
   let description = 'Standard Shipping Box';
@@ -131,8 +142,8 @@ async function compileLiveCarrierBoxResponse(finalLength, finalWidth, finalHeigh
     description = 'Padded Poly Mailer';
   } else if (boxLength <= 16 && boxWidth <= 12 && boxHeight <= 6) {
     description = 'Small Shipping Box';
-  } else if (boxHeight > 15 || boxLength > 20 || boxWidth > 20) {
-    description = 'Large / Specialty Box';
+  } else {
+    description = 'Medium / Standard Box';
   }
 
   let calculatedRateNum = 7.45; 
