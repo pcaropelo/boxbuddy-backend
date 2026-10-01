@@ -107,7 +107,7 @@ async function detectBuyerZipFromIP(req) {
     let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
     if (clientIp.includes(',')) clientIp = clientIp.split(',')[0].trim();
     
-    const geoResponse = await axios.get(`[http://ip-api.com/json/$](http://ip-api.com/json/$){clientIp === '::1' || clientIp === '127.0.0.1' ? '' : clientIp}`);
+    const geoResponse = await axios.get(`http://ip-api.com/json/${clientIp === '::1' || clientIp === '127.0.0.1' ? '' : clientIp}`);
     if (geoResponse.data && geoResponse.data.zip) {
       return geoResponse.data.zip;
     }
@@ -122,17 +122,29 @@ async function compileLiveCarrierBoxResponse(finalLength, finalWidth, finalHeigh
   let boxLength = Number(finalLength);
   let boxWidth = Number(finalWidth);
   let boxHeight = Number(finalHeight);
+  const lowerTitle = String(itemTitle).toLowerCase();
 
-  // 🧥 APPAREL / SOFT GOODS COMPRESSION RULE (Forces flat mailer profile for clothing)
-  const isApparel = /(jacket|coat|hoodie|shirt|sweater|anorak|pullover|pants|shorts|jersey|t-shirt|fleece)/i.test(itemTitle);
-  if (isApparel) {
-    boxLength = Math.min(boxLength, 14);
-    boxWidth = Math.min(boxWidth, 12);
-    boxHeight = Math.min(boxHeight, 3); // Flattens apparel into mailer/flat profile
+  // 1. 🏌️ GOLF CLUBS / SHAFTS RULE (Strict long-box enforcement)
+  const isGolfClub = /(golf|shaft|driver|wood|iron|putter|wedge)/i.test(lowerTitle);
+  if (isGolfClub) {
+    boxLength = Math.max(boxLength, 46);
+    boxWidth = 6;
+    boxHeight = 6;
   }
-
-  // 📦 GENERAL DIMENSION CAPPING (Prevents massive DIM weight spikes on bulky items)
-  if (boxLength > 20 || boxWidth > 20 || boxHeight > 20) {
+  // 2. 🧥 APPAREL / SOFT GOODS COMPRESSION RULE (Forces flat mailer profile)
+  else if (/(jacket|coat|hoodie|shirt|sweater|anorak|pullover|pants|shorts|jersey|t-shirt|fleece)/i.test(lowerTitle)) {
+    boxLength = Math.min(boxLength, 13);
+    boxWidth = Math.min(boxWidth, 10);
+    boxHeight = 2; // Flat profile
+  }
+  // 3. 🖨️ BULKY EQUIPMENT & 3D PRINTERS CARRIER CLASS CAP (Consolidates into 16x14x12 standard heavy-duty box)
+  else if (/(printer|3d printer|neptune|bambu|creality|machine|console|receiver|amplifier)/i.test(lowerTitle)) {
+    boxLength = 16;
+    boxWidth = 14;
+    boxHeight = 12;
+  }
+  // 4. 📦 GENERAL DIMENSION CAPPING
+  else if (boxLength > 20 || boxWidth > 20 || boxHeight > 20) {
     boxLength = Math.min(boxLength, 18);
     boxWidth = Math.min(boxWidth, 14);
     boxHeight = Math.min(boxHeight, 12);
@@ -146,10 +158,14 @@ async function compileLiveCarrierBoxResponse(finalLength, finalWidth, finalHeigh
 
   let description = 'Standard Shipping Box';
 
-  if (boxLength <= 12 && boxWidth <= 9 && boxHeight <= 3) {
+  if (boxLength <= 12 && boxWidth <= 10 && boxHeight <= 3) {
     description = 'Padded Poly Mailer';
   } else if (boxLength <= 16 && boxWidth <= 12 && boxHeight <= 6) {
     description = 'Small Shipping Box';
+  } else if (isGolfClub) {
+    description = 'Long Golf Club Box';
+  } else if (/(printer|neptune|bambu|creality|machine)/i.test(lowerTitle)) {
+    description = 'Heavy-Duty Equipment Box';
   } else {
     description = 'Medium / Standard Box';
   }
@@ -282,7 +298,7 @@ app.post('/api/optimize', async (req, res) => {
 
     try {
       const payloadObject = { q: cleanedTitle + ' technical specification dimensions length width height weight' };
-      const serperResponse = await axios.post('[https://serper.dev](https://serper.dev)', payloadObject, {
+      const serperResponse = await axios.post('https://serper.dev', payloadObject, {
         headers: { 'X-API-KEY': process.env.SERPER_API_KEY, 'Content-Type': 'application/json' }
       });
       if (serperResponse.data && serperResponse.data.organic) {
@@ -301,10 +317,11 @@ app.post('/api/optimize', async (req, res) => {
             content: `You are an expert e-commerce logistics packaging engine. Analyze the product title and context to determine the proper UNPACKAGED item dimensions (inches) and weight (ounces).
 
 LOGISTICS DOMAIN RULES TO ENFORCE:
-1. Golf Clubs / Shafts / Drivers / Woods / Irons / Putters: Length MUST be 44-48 inches, Width 4 inches, Height 4 inches. Weight 16-48 oz.
+1. Golf Clubs / Shafts / Drivers / Woods / Irons / Putters: Length MUST be 46-48 inches, Width 4 inches, Height 4 inches. Weight 16-48 oz.
 2. Long or Tubular Items (Fishing rods, posters, baseball bats, ski poles, guitars): Length MUST accurately reflect full item length (usually 36-50 inches).
-3. Small Consumer Electronics / Accessories / Apparel: Output realistic single-item dimensions.
-4. Weight Standard: ALWAYS output total weight in OUNCES (1 lb = 16 oz).
+3. Apparel / Jackets / Hoodies: Output flat dimensions (length 12-14, width 10-12, height 2-3 inches).
+4. 3D Printers / Heavy Equipment: Output standard dimensions that fit within standard boxes.
+5. Weight Standard: ALWAYS output total weight in OUNCES (1 lb = 16 oz).
 
 Output ONLY a valid JSON object: {"length": number, "width": number, "height": number, "weight": number}` 
           },
@@ -375,8 +392,8 @@ app.post('/api/create-checkout-session', async (req, res) => {
         quantity: 1,
       }],
       mode: 'payment',
-      success_url: `[https://boxbuddy-backend.onrender.com/api/stripe/success?session_id=](https://boxbuddy-backend.onrender.com/api/stripe/success?session_id=){CHECKOUT_SESSION_ID}`,
-      cancel_url: `[https://boxbuddy-backend.onrender.com/api/stripe/cancel](https://boxbuddy-backend.onrender.com/api/stripe/cancel)`,
+      success_url: `https://boxbuddy-backend.onrender.com/api/stripe/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `https://boxbuddy-backend.onrender.com/api/stripe/cancel`,
     });
 
     res.json({ url: session.url });
