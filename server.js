@@ -92,21 +92,33 @@ async function detectBuyerZipFromIP(req) {
   return '90210';
 }
 
-// 🚀 SHIPPO LOGISTICS ENGINE: PROFILE-DRIVEN LEAST-COST ROUTING
-async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth, finalHeight, finalWeight, pageShippingCost, cleanOriginZip, cleanDestZip) {
+// 🚀 SHIPPO LOGISTICS ENGINE: PROFILE-DRIVEN LEAST-COST ROUTING & WEIGHT CLAMPING
+async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth, finalHeight, finalWeight, pageShippingCost, cleanOriginZip, cleanDestZip, itemTitle = '') {
   let boxLength = Number(finalLength);
   let boxWidth = Number(finalWidth);
   let boxHeight = Number(finalHeight);
-  const boxWeightOunces = Math.max(1, Math.round(Number(finalWeight)));
+  let boxWeightOunces = Math.max(1, Math.round(Number(finalWeight)));
+  const lowerTitle = String(itemTitle).toLowerCase();
 
   let description = 'Standard Shipping Box';
 
-  // Strictly enforce the AI-determined profiles to lock in absolute lowest dimensional classes
+  // Strictly enforce the AI-determined profiles and intercept lazy weights
   if (aiProfile === 'poly_mailer') {
     boxLength = 12;
     boxWidth = 10;
     boxHeight = 2;
     description = 'Padded Poly Mailer';
+    
+    // 🚀 WEIGHT OVERRIDE: Keep soft goods under the 16oz (1lb) penalty threshold
+    if (boxWeightOunces >= 16) {
+      if (/(parka|heavy|boots|winter)/i.test(lowerTitle)) {
+         // Leave heavy items alone
+      } else if (/(jacket|coat)/i.test(lowerTitle)) {
+         boxWeightOunces = 15; // Max out the <1lb tier
+      } else {
+         boxWeightOunces = 12; // Standard shirts, shells, and shorts
+      }
+    }
   } else if (aiProfile === 'golf_tube') {
     boxLength = 48;
     boxWidth = 6;
@@ -122,6 +134,11 @@ async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth,
     boxWidth = Math.max(boxWidth, 6);
     boxHeight = Math.max(boxHeight, 4);
     description = 'Small Shipping Box';
+    
+    // 🚀 WEIGHT OVERRIDE: Tiny accessories must get the 4oz micro-tier
+    if (/(glove|tee|sleeve|adapter|grip)/i.test(lowerTitle)) {
+      boxWeightOunces = 4;
+    }
   } else {
     // Sanity check cap for oversized standard boxes
     if (boxLength > 24 || boxWidth > 24 || boxHeight > 24) {
@@ -160,7 +177,6 @@ async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth,
     });
 
     if (shipment && shipment.rates && shipment.rates.length > 0) {
-      // Automatically isolate the single lowest-cost rate across all providers
       const cheapestRate = shipment.rates.reduce((min, rate) => {
         const minVal = parseFloat(min.rate || min.amount || 0);
         const rateVal = parseFloat(rate.rate || rate.amount || 0);
@@ -262,10 +278,10 @@ app.post('/api/optimize', async (req, res) => {
             role: 'system', 
             content: `You are an expert e-commerce packaging logistics AI. Your task is to semantically analyze the product title and context, determine the correct packaging profile category, and output dimensions (inches) and weight (ounces).
 
-PACKAGING PROFILES:
-- "poly_mailer" : Use for all apparel, clothing, jackets, shirts, hats, and soft goods.
-- "golf_tube" : Use ONLY for FULL-LENGTH golf clubs, drivers, woods, and long shafts.
-- "small_box" : Use for small electronics, headphones, golf gloves, tees, grips, adapter sleeves, and small accessories.
+PACKAGING PROFILES & WEIGHT GUIDELINES:
+- "poly_mailer" : Use for all apparel, clothing, jackets, shirts, hats, and soft goods. (Output weight between 8-15 oz).
+- "golf_tube" : Use ONLY for FULL-LENGTH golf clubs, drivers, woods, and long shafts. (Output weight 24-32 oz).
+- "small_box" : Use for small electronics, headphones, golf gloves, tees, grips, adapter sleeves, and small accessories. (Golf gloves/sleeves: 4 oz. Headphones: 32 oz).
 - "heavy_box" : Use for large, bulky, or heavy items like 3D printers, home theater receivers, speakers.
 - "standard_box" : Use for shoes, household items, or anything else.
 
@@ -289,7 +305,7 @@ Output ONLY a valid JSON object matching this structure:
     } catch (aiErr) {}
 
     // Pass the semantic AI Profile directly to the logistics engine
-    const responseData = await compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth, finalHeight, parsedWeight || finalWeight, pageShippingCost, cleanOriginZip, cleanDestZip);
+    const responseData = await compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth, finalHeight, parsedWeight || finalWeight, pageShippingCost, cleanOriginZip, cleanDestZip, title);
     responseData.remainingCredits = newBalance;
     return res.json(responseData);
 
