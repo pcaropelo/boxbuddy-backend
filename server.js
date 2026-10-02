@@ -1,5 +1,5 @@
 // ==========================================================================
-// PACKSPEC AI - BOXBUDDY SECURED BACKEND INFRASTRUCTURE
+// PACKSPEC AI - BOXBUDDY SECURED BACKEND INFRASTRUCTURE (V3 - HYBRID)
 // ==========================================================================
 
 // 🌐 NODE.JS ENVIRONMENT POLYFILL
@@ -26,7 +26,9 @@ const PORT = process.env.PORT || 3000;
 
 app.set('trust proxy', true);
 
+// 🗄️ DATABASES (Added payments.db for Stripe Idempotency)
 const db = Datastore.create({ filename: 'users.db', autoload: true });
+const payments = Datastore.create({ filename: 'payments.db', autoload: true }); 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
 app.use(cors());
@@ -42,23 +44,30 @@ function sanitizeTitleForSearch(rawTitle) {
     .trim();
 }
 
-// 📍 RESOLVE CITY/STATE INTO ZIP
+// 📍 RESOLVE CITY/STATE INTO ZIP (Upgraded to Zippopotam.us API)
 async function resolveToZipCode(locationStr) {
   if (!locationStr) return '07030';
   if (/^(00000|00001|00000-0000|n\/a|unknown|none)$/i.test(locationStr.trim()) || locationStr.includes('00000')) return '07030';
   const isInternational = /(japan|china|uk|united kingdom|canada|germany|australia|hong kong|taiwan|korea|france|italy)/i.test(locationStr);
   if (isInternational) return '90210'; 
+  
   const zipMatch = String(locationStr).match(/\b\d{5}\b/);
   if (zipMatch && zipMatch[0] !== '00000' && zipMatch[0] !== '00001') return zipMatch[0];
+
   try {
-    const aiResponse = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'system', content: 'Convert US city/state to 5-digit ZIP. Output ONLY the ZIP.' }, { role: 'user', content: locationStr }],
-      temperature: 0.0,
-    });
-    const resolvedZip = aiResponse.choices[0].message.content.trim();
-    if (/^\d{5}$/.test(resolvedZip)) return resolvedZip;
-  } catch (err) {}
+    const parts = locationStr.split(',').map(s => s.trim());
+    if (parts.length >= 2) {
+      const city = parts[0];
+      const stateAbbrMatch = parts[1].match(/\b([A-Za-z]{2})\b/);
+      if (stateAbbrMatch) {
+          const state = stateAbbrMatch[1].toLowerCase();
+          const r = await axios.get(`https://api.zippopotam.us/us/${state}/${encodeURIComponent(city)}`);
+          if (r.data?.places?.[0]?.['post code']) return r.data.places[0]['post code'];
+      }
+    }
+  } catch (err) {
+      console.log('💡 Zippopotamus lookup failed, falling back to 07030');
+  }
   return '07030';
 }
 
@@ -102,6 +111,11 @@ const PACKAGING_LIBRARY = [
   { name: 'Oversize Freight Box', type: 'standard', l: 30, w: 24, h: 24, maxVol: 17280, emptyWeight: 48 }
 ];
 
+// 🔄 6-WAY 3D ROTATION MATRIX
+const PERMUTATIONS = [
+  [0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]
+];
+
 async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOriginZip, cleanDestZip, itemQuantity = 1) {
   
   let effectiveLength = Number(aiData.baseLength);
@@ -128,20 +142,26 @@ async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOrig
       if (!allowedTypes.includes(box.type)) return false;
       if (box.maxVol < totalVolume) return false; 
       
-      // 🛡️ CRITICAL FIX: Apparel maxQty capacity lock. Forces boxes for bulk clothing.
+      // Apparel maxQty capacity lock. Forces boxes for bulk clothing.
       if (box.maxQty && itemQuantity > box.maxQty) return false;
       
-      let boxDims = [box.l, box.w, box.h].sort((a,b) => b - a);
-      let itemDims = [effectiveLength, Number(aiData.baseWidth), Number(aiData.baseHeight)].sort((a,b) => b - a);
+      let boxDims = [box.l, box.w, box.h];
+      let itemDims = [effectiveLength, Number(aiData.baseWidth), Number(aiData.baseHeight)];
       
       if (box.type === 'tube') {
-          return box.l >= effectiveLength;
+          return Math.max(...boxDims) >= effectiveLength;
       } else if (box.type === 'soft_good') {
           return true; // Vacuum bags squish to fit volume
       } else if (box.type === 'apparel') {
-          return (box.l * 1.5 >= effectiveLength) && (box.w * 1.5 >= Math.min(Number(aiData.baseWidth), Number(aiData.baseHeight)));
+          return (Math.max(...boxDims) * 1.5 >= effectiveLength) && (Math.min(...boxDims) * 1.5 >= Math.min(...itemDims));
       } else {
-          return boxDims[0] >= itemDims[0] && boxDims[1] >= itemDims[1] && boxDims[2] >= itemDims[2];
+          // 🛡️ UPGRADE: 6-Way 3D Permutation Check for Rigid Boxes
+          for (const p of PERMUTATIONS) {
+              if (boxDims[0] >= itemDims[p[0]] && boxDims[1] >= itemDims[p[1]] && boxDims[2] >= itemDims[p[2]]) {
+                  return true;
+              }
+          }
+          return false;
       }
   });
 
@@ -189,7 +209,7 @@ async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOrig
     console.log('💡 Shippo pipeline warning: ' + err.message);
   }
 
-  // Oversize Reality Check (Overrides fake sandbox rates)
+  // 🛡️ Oversize Sandbox Fallback Override (Preserves testing on huge items)
   if (selectedBox.type === 'tube' || selectedBox.name.includes('Freight')) {
       if (boxLength > 48 && calculatedRateNum < 25) {
           calculatedRateNum = 28.50; 
@@ -202,7 +222,7 @@ async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOrig
 
   const numericPageCost = Number(pageShippingCost);
   
-  // Universal Arbitrage applied to ALL Qty 1 items
+  // 🛡️ ARBITRAGE ENGINE (Preserved and active)
   if (numericPageCost > 0 && calculatedRateNum > numericPageCost && itemQuantity === 1) {
       calculatedRateNum = numericPageCost * 0.82;
       if (boxLength >= 20 || selectedBox.type === 'tube') {
@@ -257,7 +277,8 @@ app.post('/api/optimize', async (req, res) => {
     const cleanedTitle = sanitizeTitleForSearch(title);
     let searchContext = '';
     try {
-      const serperResponse = await axios.post('https://serper.dev', { q: cleanedTitle + ' dimensions length width height weight' }, { headers: { 'X-API-KEY': process.env.SERPER_API_KEY, 'Content-Type': 'application/json' } });
+      // 🛡️ UPGRADE: Fixed Google Serper Endpoint
+      const serperResponse = await axios.post('https://google.serper.dev/search', { q: cleanedTitle + ' dimensions length width height weight' }, { headers: { 'X-API-KEY': process.env.SERPER_API_KEY, 'Content-Type': 'application/json' } });
       if (serperResponse.data && serperResponse.data.organic) searchContext = serperResponse.data.organic.map(item => item.snippet).join(' ');
     } catch (searchErr) {}
 
@@ -299,7 +320,7 @@ Output ONLY a valid JSON object matching this structure:
           aiData.baseWeightOunces = 4;
       }
 
-      // 🛡️ CRITICAL FIX: Expanded Tube regex to catch generic un-named fishing poles (Shimano fix)
+      // Tube regex
       const isTubeItem = lowerTitle.includes('rod') || lowerTitle.includes('pole') || lowerTitle.includes('shaft') || lowerTitle.includes('bat') || lowerTitle.includes('fishing') || lowerTitle.includes('shimano');
       
       if (isTubeItem) {
@@ -358,35 +379,62 @@ app.post('/api/create-checkout-session', async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to create checkout session' }); }
 });
 
-// 💳 STRIPE SUCCESS FULFILLMENT ROUTE
+// 💳 STRIPE SUCCESS FULFILLMENT ROUTE (🛡️ UPGRADE: Idempotent Database Security)
 app.get('/api/stripe/success', async (req, res) => {
   const sessionId = req.query.session_id;
-  let tokensAwarded = 5, targetUserId = 'anonymous_user_guest';
+  let tokensAwarded = 0;
+  let targetUserId = 'anonymous_user_guest';
+
   try {
     if (sessionId && sessionId.startsWith('cs_')) {
       const session = await stripe.checkout.sessions.retrieve(sessionId);
-      const totalPaid = session.amount_total;
-      if (session.client_reference_id) targetUserId = session.client_reference_id;
-      if (totalPaid >= 900) tokensAwarded = 100; else if (totalPaid >= 400) tokensAwarded = 50; else tokensAwarded = 5;
+      
+      if (session.payment_status === 'paid') {
+          // Check if this specific payment was already fulfilled
+          const existingPayment = await payments.findOne({ _id: sessionId });
+          
+          if (!existingPayment) {
+              // Record it so it can never be processed again
+              await payments.insert({ _id: sessionId, at: Date.now() });
+              
+              const totalPaid = session.amount_total;
+              if (session.client_reference_id) targetUserId = session.client_reference_id;
+              
+              if (totalPaid >= 900) tokensAwarded = 100; 
+              else if (totalPaid >= 400) tokensAwarded = 50; 
+              else tokensAwarded = 5;
+          }
+      }
     }
-  } catch (err) {}
+  } catch (err) {
+      console.log('Stripe Fulfilment Warning:', err.message);
+  }
 
-  let userRecord = await db.findOne({ userId: targetUserId });
-  if (!userRecord) await db.insert({ userId: targetUserId, credits: tokensAwarded });
-  else await db.update({ userId: targetUserId }, { $inc: { credits: tokensAwarded } });
-
-  const updatedRecord = await db.findOne({ userId: targetUserId });
-  const newTotalCredits = updatedRecord ? updatedRecord.credits : tokensAwarded;
+  let newTotalCredits = 0;
+  if (tokensAwarded > 0) {
+      let userRecord = await db.findOne({ userId: targetUserId });
+      if (!userRecord) {
+          await db.insert({ userId: targetUserId, credits: tokensAwarded });
+          newTotalCredits = tokensAwarded;
+      } else {
+          await db.update({ userId: targetUserId }, { $inc: { credits: tokensAwarded } });
+          const updatedRecord = await db.findOne({ userId: targetUserId });
+          newTotalCredits = updatedRecord.credits;
+      }
+  } else {
+      const userRecord = await db.findOne({ userId: targetUserId });
+      newTotalCredits = userRecord ? userRecord.credits : 0;
+  }
 
   res.send(`
     <div style="font-family: sans-serif; text-align: center; margin-top: 50px;">
-      <h1>Refill Successful! 🎉</h1>
-      <p>Added <strong>${tokensAwarded}</strong> credits to your account.</p>
-      <p>Your new total balance is <strong>${newTotalCredits} credits</strong>.</p>
+      <h1>${tokensAwarded > 0 ? 'Refill Successful! 🎉' : 'Payment Verified'}</h1>
+      ${tokensAwarded > 0 ? `<p>Added <strong>${tokensAwarded}</strong> credits to your account.</p>` : `<p>No new credits to add (this receipt was already processed).</p>`}
+      <p>Your current balance is <strong>${newTotalCredits} credits</strong>.</p>
     </div>
   `);
 });
 
 app.listen(PORT, () => {
-  console.log('🚀 BoxBuddy AI 3D Volumetric Engine active on port ' + PORT);
+  console.log('🚀 BoxBuddy AI 3D Volumetric Engine (Hybrid) active on port ' + PORT);
 });
