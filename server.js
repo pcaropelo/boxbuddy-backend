@@ -32,7 +32,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 app.use(cors());
 app.use(express.json());
 
-// 🧹 TITLE SANITIZATION HELPER
+// 🧹 TITLE SANITIZATION
 function sanitizeTitleForSearch(rawTitle) {
   if (!rawTitle) return '';
   return rawTitle
@@ -42,7 +42,7 @@ function sanitizeTitleForSearch(rawTitle) {
     .trim();
 }
 
-// 📍 RESOLVE CITY/STATE INTO ZIP
+// 📍 RESOLVE ZIP
 async function resolveToZipCode(locationStr) {
   if (!locationStr) return '07030';
   if (/^(00000|00001|00000-0000|n\/a|unknown|none)$/i.test(locationStr.trim()) || locationStr.includes('00000')) return '07030';
@@ -62,7 +62,7 @@ async function resolveToZipCode(locationStr) {
   return '07030';
 }
 
-// 🌐 AUTO-DETECT IP ZIP
+// 🌐 AUTO-DETECT IP
 async function detectBuyerZipFromIP(req) {
   try {
     let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
@@ -75,25 +75,25 @@ async function detectBuyerZipFromIP(req) {
 
 // 🚀 3D VOLUMETRIC BIN PACKING ALGORITHM & LIBRARY
 const PACKAGING_LIBRARY = [
-  // Apparel (Physics: Bypasses rigid width checks, scales by squish volume)
+  // Apparel
   { name: 'Small Poly Mailer', type: 'apparel', l: 10, w: 8, h: 1, maxVol: 80, emptyWeight: 0.5 },
   { name: 'Medium Poly Mailer', type: 'apparel', l: 12, w: 10, h: 2, maxVol: 240, emptyWeight: 1 },
   { name: 'Large Poly Mailer', type: 'apparel', l: 19, w: 14, h: 4, maxVol: 1064, emptyWeight: 2 },
   { name: 'Jumbo Poly Mailer', type: 'apparel', l: 24, w: 19, h: 6, maxVol: 2736, emptyWeight: 3 },
   
-  // Soft Goods (Plushies, Pillows)
+  // Soft Goods
   { name: 'Vacuum-Sealed Mailer / Box', type: 'soft_good', l: 14, w: 12, h: 6, maxVol: 1008, emptyWeight: 1.5 },
   
-  // Tubes (Physics: Requires Length fit, ignores standard XYZ mapping)
+  // Tubes 
   { name: 'Small Tube Box', type: 'tube', l: 36, w: 4, h: 4, maxVol: 576, emptyWeight: 6 },
   { name: 'Standard Tube Box', type: 'tube', l: 48, w: 4, h: 4, maxVol: 768, emptyWeight: 8 },
   { name: 'Long Tube Box', type: 'tube', l: 72, w: 4, h: 4, maxVol: 1152, emptyWeight: 12 },
   { name: 'Extra Long Tube Box', type: 'tube', l: 96, w: 4, h: 4, maxVol: 1536, emptyWeight: 16 },
   
-  // Dense & Heavy (Physics: Overrides to Flat Rate when beneficial)
+  // Dense & Heavy
   { name: 'USPS Medium Flat Rate Box', type: 'dense_heavy', l: 11, w: 8.5, h: 5.5, maxVol: 514, emptyWeight: 4 },
   
-  // Standard Rigid Shipping Boxes (Physics: Requires absolute 3D Volumetric Fit)
+  // Standard Rigid Shipping Boxes
   { name: 'Small Shipping Box', type: 'standard', l: 8, w: 6, h: 4, maxVol: 192, emptyWeight: 3 },
   { name: 'Medium Shipping Box', type: 'standard', l: 12, w: 9, h: 6, maxVol: 648, emptyWeight: 5 },
   { name: 'Large Shipping Box', type: 'standard', l: 16, w: 12, h: 8, maxVol: 1536, emptyWeight: 8 },
@@ -104,64 +104,53 @@ const PACKAGING_LIBRARY = [
 
 async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOriginZip, cleanDestZip, itemQuantity = 1) {
   
-  // 1. Process Multi-Piece Breakdown
   let effectiveLength = Number(aiData.baseLength);
   if (aiData.isMultiPiece === true && Number(aiData.numberOfPieces) > 1) {
      effectiveLength = Math.ceil(effectiveLength / Number(aiData.numberOfPieces));
   }
 
-  // 2. Calculate Cart Volume & Base Weight
   let singleVolume = effectiveLength * Number(aiData.baseWidth) * Number(aiData.baseHeight);
   let totalVolume = singleVolume * itemQuantity;
   let totalWeightOunces = Number(aiData.baseWeightOunces) * itemQuantity;
 
-  // 3. Apply Compression Physics for soft items
+  // 🛡️ Squishmallow / Apparel Compression Physics
   if (aiData.packagingType === 'soft_good') {
-     totalVolume = totalVolume * 0.35; // Squishmallows compress heavily
+     totalVolume = totalVolume * 0.15; 
   } else if (aiData.packagingType === 'apparel') {
-     totalVolume = totalVolume * 0.50; // Clothing folds and compresses
+     totalVolume = totalVolume * 0.40; 
   }
 
-  // 4. Bin Packing Matcher
   let allowedTypes = [aiData.packagingType, 'standard']; 
   if (aiData.packagingType === 'soft_good') allowedTypes = ['soft_good', 'apparel', 'standard'];
   if (aiData.packagingType === 'tube') allowedTypes = ['tube', 'standard'];
 
-  let selectedBox = null;
-
-  for (const type of allowedTypes) {
-      let candidates = PACKAGING_LIBRARY.filter(box => {
-          if (box.type !== type) return false;
-          if (box.maxVol < totalVolume) return false; 
-          
-          let boxDims = [box.l, box.w, box.h].sort((a,b) => b - a);
-          let itemDims = [effectiveLength, Number(aiData.baseWidth), Number(aiData.baseHeight)].sort((a,b) => b - a);
-          
-          if (type === 'tube') {
-              return box.l >= effectiveLength; // Tubes only care about length clearance
-          } else if (type === 'apparel' || type === 'soft_good') {
-              // Soft goods fold and squish. Allow dimensions to overhang by up to 50% since it's a flexible bag
-              return (box.l * 1.5 >= effectiveLength) && (box.w * 1.5 >= Math.min(Number(aiData.baseWidth), Number(aiData.baseHeight)));
-          } else {
-              // Rigid standard boxes require full 3D geometry clearance
-              return boxDims[0] >= itemDims[0] && boxDims[1] >= itemDims[1] && boxDims[2] >= itemDims[2];
-          }
-      });
-
-      if (candidates.length > 0) {
-          candidates.sort((a, b) => a.maxVol - b.maxVol);
-          selectedBox = candidates[0];
-          break; // Stop looking once we find the smallest physical box in the preferred category
+  let candidates = PACKAGING_LIBRARY.filter(box => {
+      if (!allowedTypes.includes(box.type)) return false;
+      if (box.maxVol < totalVolume) return false; 
+      
+      let boxDims = [box.l, box.w, box.h].sort((a,b) => b - a);
+      let itemDims = [effectiveLength, Number(aiData.baseWidth), Number(aiData.baseHeight)].sort((a,b) => b - a);
+      
+      if (box.type === 'tube') {
+          return box.l >= effectiveLength;
+      } else if (box.type === 'soft_good') {
+          // 🛡️ CRITICAL FIX: Squishmallows ignore length/width ratios. If volume fits, it squishes in.
+          return true;
+      } else if (box.type === 'apparel') {
+          return (box.l * 1.5 >= effectiveLength) && (box.w * 1.5 >= Math.min(Number(aiData.baseWidth), Number(aiData.baseHeight)));
+      } else {
+          return boxDims[0] >= itemDims[0] && boxDims[1] >= itemDims[1] && boxDims[2] >= itemDims[2];
       }
-  }
+  });
 
-  if (!selectedBox) {
+  let selectedBox = null;
+  if (candidates.length > 0) {
+      candidates.sort((a, b) => a.maxVol - b.maxVol);
+      selectedBox = candidates[0]; 
+  } else {
       selectedBox = {
-          name: 'Custom Freight Box',
-          l: Math.ceil(effectiveLength),
-          w: Math.ceil(Number(aiData.baseWidth)),
-          h: Math.ceil(Number(aiData.baseHeight) * Math.pow(itemQuantity, 1/3)),
-          emptyWeight: 40
+          name: 'Custom Freight Box', l: Math.ceil(effectiveLength), w: Math.ceil(Number(aiData.baseWidth)), 
+          h: Math.ceil(Number(aiData.baseHeight) * Math.pow(itemQuantity, 1/3)), emptyWeight: 40
       };
   }
 
@@ -190,7 +179,7 @@ async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOrig
         const rateVal = parseFloat(rate.rate || rate.amount || 0);
         return rateVal < minVal ? rate : min;
       }, shipment.rates[0]);
-      calculatedRateNum = parseFloat(cheapestRate.rate || cheapestRate.amount || 7.45);
+      calculatedRateNum = parseFloat(cheapestRate.rate || cheapestRate.amount || calculatedRateNum);
       let svcName = cheapestRate.servicelevel ? (cheapestRate.servicelevel.name || cheapestRate.servicelevel) : cheapestRate.servicelevelName;
       assignedCarrier = (cheapestRate.provider || 'Carrier') + ' ' + svcName;
     }
@@ -198,13 +187,27 @@ async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOrig
     console.log('💡 Shippo pipeline warning: ' + err.message);
   }
 
+  // 🛡️ CRITICAL FIX: The Oversize Reality Check (Overrides fake sandbox rates)
+  if (selectedBox.type === 'tube' || selectedBox.name.includes('Freight')) {
+      if (boxLength > 48 && calculatedRateNum < 25) {
+          calculatedRateNum = 28.50; 
+          assignedCarrier = 'UPS Ground (Oversize)';
+      } else if (boxLength > 30 && calculatedRateNum < 15) {
+          calculatedRateNum = 18.50; 
+          assignedCarrier = 'USPS Ground Advantage (Non-Standard)';
+      }
+  }
+
   const numericPageCost = Number(pageShippingCost);
   
-  if (numericPageCost > 0 && calculatedRateNum >= numericPageCost) {
-    if ((selectedBox.type === 'standard' && boxLength >= 20 || selectedBox.type === 'tube') && itemQuantity === 1) {
-      assignedCarrier = 'UPS Ground (Commercial)';
-      calculatedRateNum = numericPageCost * 0.82; 
-    }
+  // 🛡️ CRITICAL FIX: Universal Arbitrage applied to ALL Qty 1 items
+  if (numericPageCost > 0 && calculatedRateNum > numericPageCost && itemQuantity === 1) {
+      calculatedRateNum = numericPageCost * 0.82;
+      if (boxLength >= 20 || selectedBox.type === 'tube') {
+          assignedCarrier = 'UPS Ground (Commercial Discount)';
+      } else {
+          assignedCarrier = 'USPS Ground Advantage (Commercial Discount)';
+      }
   }
 
   if (selectedBox.type === 'dense_heavy' && calculatedRateNum > 15.50 && itemQuantity === 1) {
@@ -261,7 +264,7 @@ app.post('/api/optimize', async (req, res) => {
     try {
       const aiResponse = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
-        response_format: { type: "json_object" }, // 🛡️ CRITICAL FIX: Forces strict JSON, prevents 12x10x4 fallbacks
+        response_format: { type: "json_object" }, 
         messages: [
           { 
             role: 'system', 
@@ -270,8 +273,6 @@ app.post('/api/optimize', async (req, res) => {
 CRITICAL INSTRUCTIONS:
 1. "packagingType" must be ONE of these exact strings: "apparel", "soft_good", "tube", "dense_heavy", "standard".
 2. MULTI-PIECE ITEMS: Look carefully at Item Specifics. If a fishing rod or long item structurally breaks down into sections (e.g., "Number of Pieces: 2", "2-piece"), set "isMultiPiece" to true and "numberOfPieces" to the integer. 
-3. GOLF CLUBS & SHAFTS: These MUST ALWAYS be categorized as "tube", with a baseLength generally between 35 and 48 inches.
-4. TINY ACCESSORIES: For items like Golf Gloves, Golf Tees, or Socks, force dimensions to be small (e.g., baseLength 8, baseWidth 5, baseHeight 1) so they route to Small Poly Mailers.
 
 Output ONLY a valid JSON object matching this structure:
 {"packagingType": "string", "baseLength": number, "baseWidth": number, "baseHeight": number, "baseWeightOunces": number, "isMultiPiece": boolean, "numberOfPieces": number}` 
@@ -285,18 +286,27 @@ Output ONLY a valid JSON object matching this structure:
       let parsedData = JSON.parse(rawText);
       aiData = { ...aiData, ...parsedData };
       
-      // 🛡️ DETERMINISTIC MULTI-PIECE FAILSAFE (Intercepts AI Hallucinations)
       const lowerTitle = String(title).toLowerCase();
-      const isRod = lowerTitle.includes('rod') || lowerTitle.includes('pole') || lowerTitle.includes('shaft');
       
-      if (isRod) {
+      // 🛡️ CRITICAL FIX: Word Boundary Regex for Accessories
+      if (/\b(tee|tees|glove|gloves|ball|balls|grip|grips|towel|towels|sock|socks|hat|hats|beanie|beanies)\b/.test(lowerTitle)) {
+          aiData.packagingType = 'apparel';
+          aiData.baseLength = 8;
+          aiData.baseWidth = 5;
+          aiData.baseHeight = 1;
+          aiData.baseWeightOunces = 4;
+      }
+
+      // 🛡️ CRITICAL FIX: Deterministic check for Tubes, Bats, and Rods
+      const isTubeItem = lowerTitle.includes('rod') || lowerTitle.includes('pole') || lowerTitle.includes('shaft') || lowerTitle.includes('bat');
+      if (isTubeItem) {
+          aiData.packagingType = 'tube'; 
           if (/(2\s*pc|2\s*piece|two\s*piece)/.test(lowerTitle)) {
               aiData.isMultiPiece = true;
               aiData.numberOfPieces = 2;
           } else if (itemSpecifics) {
               for (const [key, value] of Object.entries(itemSpecifics)) {
                   if (String(key).toLowerCase().includes('pieces') && String(value).includes('2')) {
-                      console.log('🛡️ FAILSAFE TRIGGERED: Detected "Number of Pieces: 2" in Item Specifics.');
                       aiData.isMultiPiece = true;
                       aiData.numberOfPieces = 2;
                   }
