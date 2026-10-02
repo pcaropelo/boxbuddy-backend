@@ -1,5 +1,5 @@
 // ==========================================================================
-// PACKSPEC AI - BOXBUDDY SECURED BACKEND INFRASTRUCTURE (V4 - FINAL)
+// PACKSPEC AI - BOXBUDDY SECURED BACKEND INFRASTRUCTURE (V5 - FINAL)
 // ==========================================================================
 
 // 🌐 NODE.JS ENVIRONMENT POLYFILL
@@ -81,7 +81,7 @@ async function detectBuyerZipFromIP(req) {
 
 // 🚀 3D VOLUMETRIC BIN PACKING ALGORITHM & LIBRARY
 const PACKAGING_LIBRARY = [
-  // Apparel (Expanded Capacities for Bulk Clothing)
+  // Apparel 
   { name: 'Small Poly Mailer', type: 'apparel', l: 10, w: 8, h: 1, maxVol: 80, emptyWeight: 0.5, maxQty: 2 },
   { name: 'Medium Poly Mailer', type: 'apparel', l: 12, w: 10, h: 2, maxVol: 240, emptyWeight: 1, maxQty: 4 },
   { name: 'Large Poly Mailer', type: 'apparel', l: 19, w: 14, h: 4, maxVol: 1064, emptyWeight: 2, maxQty: 8 },
@@ -90,7 +90,7 @@ const PACKAGING_LIBRARY = [
   // Soft Goods
   { name: 'Vacuum-Sealed Mailer / Box', type: 'soft_good', l: 14, w: 12, h: 6, maxVol: 1008, emptyWeight: 1.5, maxQty: 4 },
   
-  // Tubes (Added 60-inch Tube for 2-Piece 9-foot Rods)
+  // Tubes 
   { name: 'Small Tube Box', type: 'tube', l: 36, w: 4, h: 4, maxVol: 576, emptyWeight: 6 },
   { name: 'Standard Tube Box', type: 'tube', l: 48, w: 4, h: 4, maxVol: 768, emptyWeight: 8 },
   { name: 'Medium Tube Box', type: 'tube', l: 60, w: 4, h: 4, maxVol: 960, emptyWeight: 10 },
@@ -148,7 +148,6 @@ async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOrig
       if (box.type === 'tube') {
           return Math.max(...boxDims) >= effectiveLength;
       } else if (box.type === 'soft_good' || box.type === 'apparel') {
-          // 🛡️ BAG PHYSICS: Mailers are bags, not rigid boxes. Volume & Qty bounds dictate fit.
           return true; 
       } else {
           for (const p of PERMUTATIONS) {
@@ -162,7 +161,15 @@ async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOrig
 
   let selectedBox = null;
   if (candidates.length > 0) {
-      candidates.sort((a, b) => a.maxVol - b.maxVol);
+      // 🛡️ V5 UPGRADE: Bag Priority Sort for Soft/Apparel Items
+      candidates.sort((a, b) => {
+          if (['apparel', 'soft_good'].includes(aiData.packagingType)) {
+              let aIsBag = ['apparel', 'soft_good'].includes(a.type) ? 0 : 1;
+              let bIsBag = ['apparel', 'soft_good'].includes(b.type) ? 0 : 1;
+              if (aIsBag !== bIsBag) return aIsBag - bIsBag;
+          }
+          return a.maxVol - b.maxVol;
+      });
       selectedBox = candidates[0]; 
   } else {
       selectedBox = {
@@ -218,7 +225,7 @@ async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOrig
 
   const numericPageCost = Number(pageShippingCost);
   
-  // 🛡️️ UNIVERSAL ARBITRAGE ENGINE
+  // 🛡 UNIVERSAL ARBITRAGE ENGINE
   if (numericPageCost > 0 && itemQuantity === 1) {
       if (calculatedRateNum >= numericPageCost || calculatedRateNum > (numericPageCost * 0.82)) {
           calculatedRateNum = numericPageCost * 0.82;
@@ -252,8 +259,6 @@ app.post('/api/optimize', async (req, res) => {
   const { title, itemSpecifics, userMode, browserExtensionId, weight, originLocation, destinationZip, quantity } = req.body;
   const itemQuantity = quantity ? parseInt(quantity, 10) : 1;
   const userId = browserExtensionId || 'anonymous_user_guest';
-
-  console.log('📥 PIPELINE REQUEST FOR USER ID: [' + userId + '] | QTY: ' + itemQuantity);
 
   try {
     let userRecord = await db.findOne({ userId });
@@ -308,12 +313,18 @@ Output ONLY a valid JSON object matching this structure:
       
       const lowerTitle = String(title).toLowerCase();
       
+      // V5 Fix: Apparel specific intercepts
       if (/\b(tee|tees|glove|gloves|ball|balls|grip|grips|towel|towels|sock|socks|hat|hats|beanie|beanies)\b/.test(lowerTitle)) {
           aiData.packagingType = 'apparel';
           aiData.baseLength = 8;
           aiData.baseWidth = 5;
           aiData.baseHeight = 1;
           aiData.baseWeightOunces = 4;
+      }
+
+      // V5 Fix: Force soft_good for vacuum bagging
+      if (/\b(plush|squishmallow|pillow|stuffed)\b/.test(lowerTitle)) {
+          aiData.packagingType = 'soft_good';
       }
 
       const isTubeItem = lowerTitle.includes('rod') || lowerTitle.includes('pole') || lowerTitle.includes('shaft') || lowerTitle.includes('bat') || lowerTitle.includes('fishing') || lowerTitle.includes('shimano');
@@ -333,9 +344,7 @@ Output ONLY a valid JSON object matching this structure:
           }
       }
 
-    } catch (aiErr) {
-      console.log('💡 AI Parsing Warning: ' + aiErr.message);
-    }
+    } catch (aiErr) {}
 
     const responseData = await compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOriginZip, cleanDestZip, itemQuantity);
     responseData.remainingCredits = newBalance;
@@ -424,5 +433,5 @@ app.get('/api/stripe/success', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log('🚀 BoxBuddy AI 3D Volumetric Engine (V4) active on port ' + PORT);
+  console.log('🚀 BoxBuddy AI 3D Volumetric Engine (V5) active on port ' + PORT);
 });
