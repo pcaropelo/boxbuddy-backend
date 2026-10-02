@@ -22,7 +22,7 @@ const shippo = new Shippo({
 });
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 app.set('trust proxy', true);
 
@@ -40,18 +40,6 @@ function sanitizeTitleForSearch(rawTitle) {
     .replace(/[^\w\s-]/gi, '')
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-// ⚖️ WEIGHT PARSER HELPER
-function parseToOunces(val) {
-  if (!val) return null;
-  const strVal = String(val).toLowerCase().trim();
-  const num = parseFloat(strVal);
-  if (isNaN(num)) return null;
-  if (strVal.includes('lb') || strVal.includes('pound')) {
-    return num * 16;
-  }
-  return num;
 }
 
 // 📍 RESOLVE CITY/STATE INTO ZIP
@@ -85,24 +73,24 @@ async function detectBuyerZipFromIP(req) {
   return '90210';
 }
 
-// 🚀 NEW 3D VOLUMETRIC BIN PACKING ALGORITHM & LIBRARY
+// 🚀 3D VOLUMETRIC BIN PACKING ALGORITHM & LIBRARY
 const PACKAGING_LIBRARY = [
-  // Apparel & Soft Goods (Requires Width & Length fit)
+  // Apparel & Soft Goods (Physics: Can bypass rigid width checks, scales by volume)
   { name: 'Small Poly Mailer', type: 'apparel', l: 10, w: 8, h: 1, maxVol: 80, emptyWeight: 0.5 },
   { name: 'Medium Poly Mailer', type: 'apparel', l: 12, w: 10, h: 2, maxVol: 240, emptyWeight: 1 },
   { name: 'Large Poly Mailer', type: 'apparel', l: 19, w: 14, h: 4, maxVol: 1064, emptyWeight: 2 },
   { name: 'Jumbo Poly Mailer', type: 'apparel', l: 24, w: 19, h: 6, maxVol: 2736, emptyWeight: 3 },
   
-  // Tubes (Requires Length fit only)
+  // Tubes (Physics: Requires Length fit, ignores standard XYZ scaling)
   { name: 'Small Tube Box', type: 'tube', l: 36, w: 4, h: 4, maxVol: 576, emptyWeight: 6 },
   { name: 'Standard Tube Box', type: 'tube', l: 48, w: 4, h: 4, maxVol: 768, emptyWeight: 8 },
   { name: 'Long Tube Box', type: 'tube', l: 72, w: 4, h: 4, maxVol: 1152, emptyWeight: 12 },
   { name: 'Extra Long Tube Box', type: 'tube', l: 96, w: 4, h: 4, maxVol: 1536, emptyWeight: 16 },
   
-  // Dense & Heavy (Overrides to Flat Rate when beneficial)
+  // Dense & Heavy (Physics: Overrides to Flat Rate when beneficial)
   { name: 'USPS Medium Flat Rate Box', type: 'dense_heavy', l: 11, w: 8.5, h: 5.5, maxVol: 514, emptyWeight: 4 },
   
-  // Standard Rigid Shipping Boxes (Requires full 3D Volumetric Fit)
+  // Standard Rigid Shipping Boxes (Physics: Requires absolute 3D Volumetric Fit)
   { name: 'Small Shipping Box', type: 'standard', l: 8, w: 6, h: 4, maxVol: 192, emptyWeight: 3 },
   { name: 'Medium Shipping Box', type: 'standard', l: 12, w: 9, h: 6, maxVol: 648, emptyWeight: 5 },
   { name: 'Large Shipping Box', type: 'standard', l: 16, w: 12, h: 8, maxVol: 1536, emptyWeight: 8 },
@@ -113,7 +101,7 @@ const PACKAGING_LIBRARY = [
 
 async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOriginZip, cleanDestZip, itemQuantity = 1) {
   
-  // 1. Process Multi-Piece Breakdown (e.g. 2-piece fishing rods)
+  // 1. Process Multi-Piece Breakdown
   let effectiveLength = Number(aiData.baseLength);
   if (aiData.isMultiPiece === true && Number(aiData.numberOfPieces) > 1) {
      effectiveLength = Math.ceil(effectiveLength / Number(aiData.numberOfPieces));
@@ -124,37 +112,41 @@ async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOrig
   let totalVolume = singleVolume * itemQuantity;
   let totalWeightOunces = Number(aiData.baseWeightOunces) * itemQuantity;
 
-  // 3. Apply Compression Physics for specific materials
+  // 3. Apply Compression Physics for soft items
   if (aiData.packagingType === 'soft_good') {
-     totalVolume = totalVolume * 0.4; // 60% compression for plush toys/pillows
+     totalVolume = totalVolume * 0.35; // Squishmallows compress heavily
   } else if (aiData.packagingType === 'apparel') {
-     totalVolume = totalVolume * 0.6; // 40% compression for stuffed clothing mailers
+     totalVolume = totalVolume * 0.50; // Clothing folds and compresses
   }
 
-  // 4. Map the requested packaging type to available library categories
+  // 4. Bin Packing Matcher
   let allowedTypes = [aiData.packagingType, 'standard']; 
-  if (aiData.packagingType === 'soft_good') allowedTypes = ['apparel', 'standard']; // Fallback squishmallows to mailers
+  if (aiData.packagingType === 'soft_good') allowedTypes = ['apparel', 'standard'];
 
   let selectedBox = null;
 
   for (const type of allowedTypes) {
       let candidates = PACKAGING_LIBRARY.filter(box => {
           if (box.type !== type) return false;
-          if (box.maxVol < totalVolume) return false;
+          if (box.maxVol < totalVolume) return false; // Must hold the compressed total volume
           
           let boxDims = [box.l, box.w, box.h].sort((a,b) => b - a);
           let itemDims = [effectiveLength, Number(aiData.baseWidth), Number(aiData.baseHeight)].sort((a,b) => b - a);
           
-          if (type === 'tube') return box.l >= effectiveLength;
-          if (type === 'apparel') return box.l >= effectiveLength && box.w >= Math.min(Number(aiData.baseWidth), Number(aiData.baseHeight));
-          
-          return boxDims[0] >= itemDims[0] && boxDims[1] >= itemDims[1] && boxDims[2] >= itemDims[2];
+          if (type === 'tube') {
+              return box.l >= effectiveLength; // Tubes only care about length clearance
+          } else if (type === 'apparel') {
+              return true; // Soft goods fold and squish. We only require that the volume fits.
+          } else {
+              // Rigid standard boxes require full 3D geometry clearance
+              return boxDims[0] >= itemDims[0] && boxDims[1] >= itemDims[1] && boxDims[2] >= itemDims[2];
+          }
       });
 
       if (candidates.length > 0) {
           candidates.sort((a, b) => a.maxVol - b.maxVol);
           selectedBox = candidates[0];
-          break; // Stop looking once we find the smallest box in preferred category
+          break; // Stop looking once we find the smallest physical box in the preferred category
       }
   }
 
@@ -183,7 +175,7 @@ async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOrig
 
     const shipment = await shippo.shipments.create({
       addressTo: { zip: cleanDestZip, country: 'US' }, 
-      addressFrom: { name: 'Seller', street1: '123 Main St', city: 'Origin', state: 'US', zip: cleanOriginZip, country: 'US' },
+      addressFrom: { name: 'BoxBuddy Seller', street1: '123 Main St', city: 'Origin', state: 'US', zip: cleanOriginZip, country: 'US' },
       parcels: [{ length: String(boxLength), width: String(boxWidth), height: String(boxHeight), distanceUnit: 'in', weight: String(boxWeight), massUnit: 'oz' }],
       async: false
     });
@@ -205,13 +197,13 @@ async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOrig
   const numericPageCost = Number(pageShippingCost);
   
   if (numericPageCost > 0 && calculatedRateNum >= numericPageCost) {
-    if ((aiData.packagingType === 'standard' && boxLength >= 20 || aiData.packagingType === 'tube') && itemQuantity === 1) {
+    if ((selectedBox.type === 'standard' && boxLength >= 20 || selectedBox.type === 'tube') && itemQuantity === 1) {
       assignedCarrier = 'UPS Ground (Commercial)';
       calculatedRateNum = numericPageCost * 0.82; 
     }
   }
 
-  if (selectedBox.name === 'USPS Medium Flat Rate Box' && calculatedRateNum > 15.50 && itemQuantity === 1) {
+  if (selectedBox.type === 'dense_heavy' && calculatedRateNum > 15.50 && itemQuantity === 1) {
     assignedCarrier = 'USPS Priority Mail (Flat Rate)';
     calculatedRateNum = 14.50; 
   }
@@ -250,7 +242,7 @@ app.post('/api/optimize', async (req, res) => {
     let pageShippingCost = 21.55;
     if (itemSpecifics) {
       if (itemSpecifics.isFreeShipping === true || itemSpecifics.listedShippingCost === 0) pageShippingCost = 0;
-      else if (itemSpecifics.listedShippingCost !== undefined) pageShippingCost = parseFloat(itemSpecifics.listedShippingCost);
+      else if (itemSpecifics.listedShippingCost !== undefined && itemSpecifics.listedShippingCost !== null) pageShippingCost = parseFloat(itemSpecifics.listedShippingCost);
     }
 
     const cleanedTitle = sanitizeTitleForSearch(title);
@@ -271,17 +263,9 @@ app.post('/api/optimize', async (req, res) => {
             content: `You are an expert e-commerce logistics AI. Semantically analyze the product title, context, and item specifics to determine the physical properties of ONE UNOPENED unit.
 
 CRITICAL INSTRUCTIONS:
-1. "packagingType" must be ONE of these exact strings:
-   - "apparel" (clothing, hats, small unbreakable accessories like golf tees, balls, grips, towels)
-   - "soft_good" (highly compressible: plush toys, squishmallows, pillows)
-   - "tube" (long thin items: golf clubs, fishing rods, baseball bats)
-   - "dense_heavy" (small but extremely heavy: kettlebells, cast iron)
-   - "standard" (everything else: electronics, shoes, 3D printers, household items)
-2. If the listing specifies it breaks down (e.g., "2 pcs", "2-piece" fishing rod), set "isMultiPiece" to true and "numberOfPieces" to the integer. Otherwise false and 1.
-3. For small accessories (golf tees, balls, socks), set packagingType to "apparel" to force poly mailer routing. DO NOT put accessories in tubes.
-
-Output ONLY a valid JSON object matching this structure:
-{"packagingType": "string", "baseLength": number, "baseWidth": number, "baseHeight": number, "baseWeightOunces": number, "isMultiPiece": boolean, "numberOfPieces": number}` 
+1. "packagingType" must be ONE of these exact strings: "apparel", "soft_good", "tube", "dense_heavy", "standard".
+2. MULTI-PIECE ITEMS: Look carefully at Item Specifics. If a fishing rod or long item structurally breaks down into sections (e.g., "Number of Pieces: 2", "2-piece"), set "isMultiPiece" to true and "numberOfPieces" to the integer. Do NOT confuse this with selling a bundle of multiple items.
+3. For small accessories (golf tees, balls, socks), set packagingType to "apparel" to force poly mailer routing.` 
           },
           { role: 'user', content: 'Title: ' + title + '\nContext: ' + searchContext + '\nItem Specifics: ' + JSON.stringify(itemSpecifics) }
         ],
@@ -291,9 +275,31 @@ Output ONLY a valid JSON object matching this structure:
       let rawText = aiResponse.choices[0].message.content.trim().replace(/```json/g, '').replace(/```/g, '').trim();
       let parsedData = JSON.parse(rawText);
       aiData = { ...aiData, ...parsedData };
-    } catch (aiErr) {}
+      
+      // 🛡️ DETERMINISTIC MULTI-PIECE FAILSAFE (Intercepts AI Hallucinations)
+      const lowerTitle = String(title).toLowerCase();
+      const isRod = lowerTitle.includes('rod') || lowerTitle.includes('pole') || lowerTitle.includes('shaft');
+      
+      if (isRod) {
+          if (/(2\s*pc|2\s*piece|two\s*piece)/.test(lowerTitle)) {
+              aiData.isMultiPiece = true;
+              aiData.numberOfPieces = 2;
+          } else if (itemSpecifics) {
+              // Direct Object Key Traversal: Look for exactly what the eBay page shows
+              for (const [key, value] of Object.entries(itemSpecifics)) {
+                  if (String(key).toLowerCase().includes('pieces') && String(value).includes('2')) {
+                      console.log('🛡️ FAILSAFE TRIGGERED: Detected "Number of Pieces: 2" in Item Specifics.');
+                      aiData.isMultiPiece = true;
+                      aiData.numberOfPieces = 2;
+                  }
+              }
+          }
+      }
 
-    // Pass the structured AI output to the Bin Packing Engine
+    } catch (aiErr) {
+      console.log('💡 AI Parsing Warning: ' + aiErr.message);
+    }
+
     const responseData = await compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOriginZip, cleanDestZip, itemQuantity);
     responseData.remainingCredits = newBalance;
     return res.json(responseData);
