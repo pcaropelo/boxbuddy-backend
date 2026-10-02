@@ -75,13 +75,16 @@ async function detectBuyerZipFromIP(req) {
 
 // 🚀 3D VOLUMETRIC BIN PACKING ALGORITHM & LIBRARY
 const PACKAGING_LIBRARY = [
-  // Apparel & Soft Goods (Physics: Can bypass rigid width checks, scales by volume)
+  // Apparel (Physics: Bypasses rigid width checks, scales by squish volume)
   { name: 'Small Poly Mailer', type: 'apparel', l: 10, w: 8, h: 1, maxVol: 80, emptyWeight: 0.5 },
   { name: 'Medium Poly Mailer', type: 'apparel', l: 12, w: 10, h: 2, maxVol: 240, emptyWeight: 1 },
   { name: 'Large Poly Mailer', type: 'apparel', l: 19, w: 14, h: 4, maxVol: 1064, emptyWeight: 2 },
   { name: 'Jumbo Poly Mailer', type: 'apparel', l: 24, w: 19, h: 6, maxVol: 2736, emptyWeight: 3 },
   
-  // Tubes (Physics: Requires Length fit, ignores standard XYZ scaling)
+  // Soft Goods (Plushies, Pillows)
+  { name: 'Vacuum-Sealed Mailer / Box', type: 'soft_good', l: 14, w: 12, h: 6, maxVol: 1008, emptyWeight: 1.5 },
+  
+  // Tubes (Physics: Requires Length fit, ignores standard XYZ mapping)
   { name: 'Small Tube Box', type: 'tube', l: 36, w: 4, h: 4, maxVol: 576, emptyWeight: 6 },
   { name: 'Standard Tube Box', type: 'tube', l: 48, w: 4, h: 4, maxVol: 768, emptyWeight: 8 },
   { name: 'Long Tube Box', type: 'tube', l: 72, w: 4, h: 4, maxVol: 1152, emptyWeight: 12 },
@@ -121,22 +124,24 @@ async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOrig
 
   // 4. Bin Packing Matcher
   let allowedTypes = [aiData.packagingType, 'standard']; 
-  if (aiData.packagingType === 'soft_good') allowedTypes = ['apparel', 'standard'];
+  if (aiData.packagingType === 'soft_good') allowedTypes = ['soft_good', 'apparel', 'standard'];
+  if (aiData.packagingType === 'tube') allowedTypes = ['tube', 'standard'];
 
   let selectedBox = null;
 
   for (const type of allowedTypes) {
       let candidates = PACKAGING_LIBRARY.filter(box => {
           if (box.type !== type) return false;
-          if (box.maxVol < totalVolume) return false; // Must hold the compressed total volume
+          if (box.maxVol < totalVolume) return false; 
           
           let boxDims = [box.l, box.w, box.h].sort((a,b) => b - a);
           let itemDims = [effectiveLength, Number(aiData.baseWidth), Number(aiData.baseHeight)].sort((a,b) => b - a);
           
           if (type === 'tube') {
               return box.l >= effectiveLength; // Tubes only care about length clearance
-          } else if (type === 'apparel') {
-              return true; // Soft goods fold and squish. We only require that the volume fits.
+          } else if (type === 'apparel' || type === 'soft_good') {
+              // Soft goods fold and squish. Allow dimensions to overhang by up to 50% since it's a flexible bag
+              return (box.l * 1.5 >= effectiveLength) && (box.w * 1.5 >= Math.min(Number(aiData.baseWidth), Number(aiData.baseHeight)));
           } else {
               // Rigid standard boxes require full 3D geometry clearance
               return boxDims[0] >= itemDims[0] && boxDims[1] >= itemDims[1] && boxDims[2] >= itemDims[2];
@@ -150,7 +155,6 @@ async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOrig
       }
   }
 
-  // Failsafe for utterly massive cart quantities
   if (!selectedBox) {
       selectedBox = {
           name: 'Custom Freight Box',
@@ -257,15 +261,20 @@ app.post('/api/optimize', async (req, res) => {
     try {
       const aiResponse = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
+        response_format: { type: "json_object" }, // 🛡️ CRITICAL FIX: Forces strict JSON, prevents 12x10x4 fallbacks
         messages: [
           { 
             role: 'system', 
-            content: `You are an expert e-commerce logistics AI. Semantically analyze the product title, context, and item specifics to determine the physical properties of ONE UNOPENED unit.
+            content: `You are an expert e-commerce logistics AI. Semantically analyze the product title, context, and item specifics to determine the physical properties of ONE UNOPENED unit. Ensure ALL dimensions are output in INCHES. If the title contains feet (e.g. 7 ft), mathematically convert it to inches (e.g. 84).
 
 CRITICAL INSTRUCTIONS:
 1. "packagingType" must be ONE of these exact strings: "apparel", "soft_good", "tube", "dense_heavy", "standard".
-2. MULTI-PIECE ITEMS: Look carefully at Item Specifics. If a fishing rod or long item structurally breaks down into sections (e.g., "Number of Pieces: 2", "2-piece"), set "isMultiPiece" to true and "numberOfPieces" to the integer. Do NOT confuse this with selling a bundle of multiple items.
-3. For small accessories (golf tees, balls, socks), set packagingType to "apparel" to force poly mailer routing.` 
+2. MULTI-PIECE ITEMS: Look carefully at Item Specifics. If a fishing rod or long item structurally breaks down into sections (e.g., "Number of Pieces: 2", "2-piece"), set "isMultiPiece" to true and "numberOfPieces" to the integer. 
+3. GOLF CLUBS & SHAFTS: These MUST ALWAYS be categorized as "tube", with a baseLength generally between 35 and 48 inches.
+4. TINY ACCESSORIES: For items like Golf Gloves, Golf Tees, or Socks, force dimensions to be small (e.g., baseLength 8, baseWidth 5, baseHeight 1) so they route to Small Poly Mailers.
+
+Output ONLY a valid JSON object matching this structure:
+{"packagingType": "string", "baseLength": number, "baseWidth": number, "baseHeight": number, "baseWeightOunces": number, "isMultiPiece": boolean, "numberOfPieces": number}` 
           },
           { role: 'user', content: 'Title: ' + title + '\nContext: ' + searchContext + '\nItem Specifics: ' + JSON.stringify(itemSpecifics) }
         ],
@@ -285,7 +294,6 @@ CRITICAL INSTRUCTIONS:
               aiData.isMultiPiece = true;
               aiData.numberOfPieces = 2;
           } else if (itemSpecifics) {
-              // Direct Object Key Traversal: Look for exactly what the eBay page shows
               for (const [key, value] of Object.entries(itemSpecifics)) {
                   if (String(key).toLowerCase().includes('pieces') && String(value).includes('2')) {
                       console.log('🛡️ FAILSAFE TRIGGERED: Detected "Number of Pieces: 2" in Item Specifics.');
