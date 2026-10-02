@@ -104,20 +104,15 @@ async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth,
 
   // 📐 EDGE-CASE SMART DIMENSIONING (Base 1-Unit Evaluation)
   if (aiProfile === 'poly_mailer') {
-    boxLength = 12;
-    boxWidth = 10;
-    boxHeight = 2;
-    description = 'Padded Poly Mailer';
-    if (boxWeightOunces >= 16) {
-      if (/(parka|heavy|boots|winter)/i.test(lowerTitle)) {
-         // Keep heavy items as is
-      } else if (/(jacket|coat)/i.test(lowerTitle)) {
-         boxWeightOunces = 15; 
-      } else if (/(glove|tee|sleeve|grip|towel)/i.test(lowerTitle)) {
-         boxWeightOunces = 4; 
-      } else {
-         boxWeightOunces = 12; 
-      }
+    if (boxWeightOunces <= 8 || /(glove|tee|sleeve|grip|towel)/i.test(lowerTitle)) {
+      description = 'Small Poly Mailer';
+      boxLength = 10; boxWidth = 8; boxHeight = 1;
+      boxWeightOunces = 4;
+    } else {
+      description = 'Medium Poly Mailer';
+      boxLength = 12; boxWidth = 10; boxHeight = 2;
+      if (/(jacket|coat)/i.test(lowerTitle)) boxWeightOunces = 15; 
+      else boxWeightOunces = 12; 
     }
   } else if (aiProfile === 'vacuum_bag') {
     boxLength = Math.max(10, Math.ceil(boxLength * 0.5));
@@ -155,18 +150,16 @@ async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth,
   // 🚀 MULTI-ITEM QUANTITY SCALING ENGINE
   if (itemQuantity > 1) {
     boxWeightOunces = boxWeightOunces * itemQuantity;
-    let scaleFactor = Math.pow(itemQuantity, 1/3); // Cube root volumetric expansion
+    let scaleFactor = Math.pow(itemQuantity, 1/3); 
     
     if (aiProfile === 'poly_mailer') {
-       // 🚀 FIX: Apparel Compression Scaling
-       // Soft goods do not scale rigidly. We upgrade to a large mailer and heavily compress the Z-axis.
-       description = 'Large Poly Mailer (Multi-Item)';
-       boxLength = Math.max(15, Math.ceil(boxLength + (itemQuantity * 0.5))); // Slowly grows width
-       boxWidth = Math.max(12, Math.ceil(boxWidth + (itemQuantity * 0.5)));   // Slowly grows depth
-       boxHeight = Math.max(3, Math.ceil(boxHeight + (itemQuantity * 0.6)));  // Squishes thickness
+       description = 'Large Poly Mailer';
+       boxLength = Math.max(15, Math.ceil(boxLength + (itemQuantity * 0.5))); 
+       boxWidth = Math.max(12, Math.ceil(boxWidth + (itemQuantity * 0.5)));   
+       boxHeight = Math.max(3, Math.ceil(boxHeight + (itemQuantity * 0.6)));  
     } else if (aiProfile === 'flat_rate_box') {
        description = 'Heavy-Duty Equipment Box (Multi-Item)';
-       aiProfile = 'heavy_box'; // Strip flat rate limit
+       aiProfile = 'heavy_box'; 
        boxLength = Math.ceil(boxLength * scaleFactor);
        boxWidth = Math.ceil(boxWidth * scaleFactor);
        boxHeight = Math.ceil(boxHeight * scaleFactor);
@@ -235,14 +228,13 @@ async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth,
   const numericPageCost = Number(pageShippingCost);
   
   if (numericPageCost > 0 && calculatedRateNum >= numericPageCost) {
-    // Intercept oversize AND multi-item heavy shipments to UPS Ground
-    if (aiProfile === 'heavy_box' || aiProfile === 'long_tube' || itemQuantity > 1) {
+    // 🚀 FIX: Lock Synthetic Discounts to 1-Unit orders to prevent eBay DOM flat-rate scaling bugs
+    if ((aiProfile === 'heavy_box' || aiProfile === 'long_tube') && itemQuantity === 1) {
       assignedCarrier = 'UPS Ground (Commercial)';
       calculatedRateNum = numericPageCost * 0.82; 
     }
   }
 
-  // Intercept Dense Micro-Items that belong in Flat Rate Boxes (Must be exactly 1 unit)
   if (aiProfile === 'flat_rate_box' && calculatedRateNum > 15.50 && itemQuantity === 1) {
     assignedCarrier = 'USPS Priority Mail (Flat Rate)';
     calculatedRateNum = 14.50; 
@@ -265,7 +257,6 @@ async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth,
 
 // 👥 DYNAMIC MULTI-USER IDENTITY AND OPTIMIZATION ROUTE
 app.post('/api/optimize', async (req, res) => {
-  // EXTRACT QUANTITY FROM THE EBAY PAYLOAD
   const { title, itemSpecifics, userMode, browserExtensionId, weight, originLocation, destinationZip, quantity } = req.body;
   const itemQuantity = quantity ? parseInt(quantity, 10) : 1;
   const userId = browserExtensionId || 'anonymous_user_guest';
@@ -328,20 +319,23 @@ app.post('/api/optimize', async (req, res) => {
             role: 'system', 
             content: `You are an expert e-commerce packaging logistics AI. Your task is to semantically analyze the product title and context, determine the correct packaging profile category, and output actual dimensions (inches) and weight (ounces).
 
-CRITICAL INSTRUCTIONS: For heavy/large items, extract the UNOPENED SHIPPING BOX dimensions, NEVER the assembled physical dimensions.
+CRITICAL INSTRUCTIONS: 
+1. Extract UNOPENED SHIPPING BOX dimensions, NEVER assembled dimensions.
+2. If an item specifies it is "2 pieces", "2-pc", or "breaks down" (e.g., fishing rods), DIVIDE the total length by the number of pieces to find the true shipping length.
+3. DO NOT route small accessories (e.g., Golf Tees, Golf Balls) to "long_tube". Use standard_box or poly_mailer.
 
 PACKAGING PROFILES:
-- "poly_mailer" : Single apparel items, soft goods. DO NOT USE for "Lots", "Bundles", or Multiples.
-- "vacuum_bag" : Use ONLY for highly compressible soft goods like Plush Toys, Squishmallows, and Pillows.
+- "poly_mailer" : Single apparel items, soft goods. DO NOT USE for "Lots" or Multiples.
+- "vacuum_bag" : Use ONLY for highly compressible soft goods like Plush Toys, Squishmallows.
 - "long_tube" : Use for long, thin items like Golf Clubs, Fishing Rods, and Baseball Bats.
-- "flat_rate_box" : Use for tiny but extremely dense/heavy items (e.g., Kettlebells, Cast Iron, small rotors).
+- "flat_rate_box" : Use for tiny but extremely dense/heavy items (e.g., Kettlebells).
 - "heavy_box" : Large, bulky, or heavy items (e.g., 3D printers, receivers).
 - "standard_box" : Shoe boxes, T-Shirt Lots/Bundles, or anything else.
 
 Output ONLY a valid JSON object matching this structure:
 {"packagingProfile": "poly_mailer|vacuum_bag|long_tube|flat_rate_box|small_box|heavy_box|standard_box", "length": number, "width": number, "height": number, "weight": number}` 
           },
-          { role: 'user', content: 'Title: ' + title + '\nContext: ' + searchContext }
+          { role: 'user', content: 'Title: ' + title + '\nContext: ' + searchContext + '\nItem Specifics: ' + JSON.stringify(itemSpecifics) }
         ],
         temperature: 0.1,
       });
@@ -357,7 +351,6 @@ Output ONLY a valid JSON object matching this structure:
       finalWeight = Number(parsedData.weight) || finalWeight;
     } catch (aiErr) {}
 
-    // Pass the extracted itemQuantity securely down into the Shippo Engine
     const responseData = await compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth, finalHeight, parsedWeight || finalWeight, pageShippingCost, cleanOriginZip, cleanDestZip, title, itemQuantity);
     responseData.remainingCredits = newBalance;
     return res.json(responseData);
