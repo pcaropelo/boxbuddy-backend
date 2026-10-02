@@ -92,7 +92,7 @@ async function detectBuyerZipFromIP(req) {
   return '90210';
 }
 
-// 🚀 SHIPPO LOGISTICS ENGINE: MULTI-CARRIER ARBITRAGE & DYNAMIC COMPRESSION
+// 🚀 SHIPPO LOGISTICS ENGINE: DETERMINISTIC OVERRIDES & LIVE ARBITRAGE
 async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth, finalHeight, finalWeight, pageShippingCost, cleanOriginZip, cleanDestZip, itemTitle = '', itemQuantity = 1) {
   let boxLength = Number(finalLength);
   let boxWidth = Number(finalWidth);
@@ -102,12 +102,26 @@ async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth,
 
   let description = 'Standard Shipping Box';
 
-  // 📐 EDGE-CASE SMART DIMENSIONING (Base 1-Unit Evaluation)
+  // 🛡️ DETERMINISTIC HARD OVERRIDES (Prevent AI logic drift)
+  if (/(tees|balls|grips|towels|hats|socks|patches)/i.test(lowerTitle)) {
+    aiProfile = 'poly_mailer';
+    description = 'Small Poly Mailer';
+    boxLength = 10; boxWidth = 8; boxHeight = 1;
+    boxWeightOunces = 4;
+  }
+
+  // 🛡️ DETERMINISTIC 2-PIECE ROD / BAT OVERRIDE
+  if (/(2[-\s]?pc|2[-\s]?piece|two[-\s]?piece)/i.test(lowerTitle) && (lowerTitle.includes('rod') || lowerTitle.includes('pole') || lowerTitle.includes('shaft'))) {
+    if (boxLength > 50) {
+      boxLength = Math.ceil(boxLength / 2); // Automatically split in half for 2-piece items
+    }
+  }
+
+  // 📐 PACKAGING PROFILE DIMENSIONING
   if (aiProfile === 'poly_mailer') {
-    if (boxWeightOunces <= 8 || /(glove|tee|sleeve|grip|towel)/i.test(lowerTitle)) {
+    if (boxWeightOunces <= 8 || description === 'Small Poly Mailer') {
       description = 'Small Poly Mailer';
       boxLength = 10; boxWidth = 8; boxHeight = 1;
-      boxWeightOunces = 4;
     } else {
       description = 'Medium Poly Mailer';
       boxLength = 12; boxWidth = 10; boxHeight = 2;
@@ -125,9 +139,10 @@ async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth,
     boxHeight = 4;
     description = 'Long Tube / Shaft Box';
   } else if (aiProfile === 'flat_rate_box') {
+    // Official USPS Medium Flat Rate Box Dimensions
     boxLength = 11;
-    boxWidth = 8;
-    boxHeight = 6;
+    boxWidth = 8.5;
+    boxHeight = 5.5;
     description = 'USPS Medium Flat Rate Box';
   } else if (aiProfile === 'heavy_box') {
     if (boxHeight > 20) boxHeight = Math.ceil(boxHeight * 0.5); 
@@ -139,12 +154,11 @@ async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth,
     boxWidth = Math.max(Math.ceil(boxWidth + 1), 6);
     boxHeight = Math.max(Math.ceil(boxHeight + 1), 4);
     description = 'Small Shipping Box (Protective)';
-    if (/(adapter|sleeve)/i.test(lowerTitle)) boxWeightOunces = 4;
   } else {
-    // standard_box
-    boxLength = Math.max(10, Math.ceil(boxLength + 1));
-    boxWidth = Math.max(8, Math.ceil(boxWidth + 1));
-    boxHeight = Math.max(4, Math.ceil(boxHeight + 1));
+    // standard_box (Aligned with standard 12x9x6 industry box)
+    boxLength = Math.max(12, Math.ceil(boxLength));
+    boxWidth = Math.max(9, Math.ceil(boxWidth));
+    boxHeight = Math.max(6, Math.ceil(boxHeight));
   }
 
   // 🚀 MULTI-ITEM QUANTITY SCALING ENGINE
@@ -152,7 +166,7 @@ async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth,
     boxWeightOunces = boxWeightOunces * itemQuantity;
     let scaleFactor = Math.pow(itemQuantity, 1/3); 
     
-    if (aiProfile === 'poly_mailer') {
+    if (aiProfile === 'poly_mailer' || description.includes('Poly Mailer')) {
        description = 'Large Poly Mailer';
        boxLength = Math.max(15, Math.ceil(boxLength + (itemQuantity * 0.5))); 
        boxWidth = Math.max(12, Math.ceil(boxWidth + (itemQuantity * 0.5)));   
@@ -228,7 +242,6 @@ async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth,
   const numericPageCost = Number(pageShippingCost);
   
   if (numericPageCost > 0 && calculatedRateNum >= numericPageCost) {
-    // 🚀 FIX: Lock Synthetic Discounts to 1-Unit orders to prevent eBay DOM flat-rate scaling bugs
     if ((aiProfile === 'heavy_box' || aiProfile === 'long_tube') && itemQuantity === 1) {
       assignedCarrier = 'UPS Ground (Commercial)';
       calculatedRateNum = numericPageCost * 0.82; 
@@ -321,11 +334,10 @@ app.post('/api/optimize', async (req, res) => {
 
 CRITICAL INSTRUCTIONS: 
 1. Extract UNOPENED SHIPPING BOX dimensions, NEVER assembled dimensions.
-2. If an item specifies it is "2 pieces", "2-pc", or "breaks down" (e.g., fishing rods), DIVIDE the total length by the number of pieces to find the true shipping length.
-3. DO NOT route small accessories (e.g., Golf Tees, Golf Balls) to "long_tube". Use standard_box or poly_mailer.
+2. DO NOT route small accessories (e.g., Golf Tees, Golf Balls, Grips) to "long_tube". Force them to poly_mailer.
 
 PACKAGING PROFILES:
-- "poly_mailer" : Single apparel items, soft goods. DO NOT USE for "Lots" or Multiples.
+- "poly_mailer" : Single apparel items, soft goods, small accessories (tees, balls). DO NOT USE for "Lots" or Multiples.
 - "vacuum_bag" : Use ONLY for highly compressible soft goods like Plush Toys, Squishmallows.
 - "long_tube" : Use for long, thin items like Golf Clubs, Fishing Rods, and Baseball Bats.
 - "flat_rate_box" : Use for tiny but extremely dense/heavy items (e.g., Kettlebells).
