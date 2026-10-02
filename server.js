@@ -54,34 +54,27 @@ function parseToOunces(val) {
   return num;
 }
 
-// 📍 RESOLVE CITY/STATE OR TEXT INTO A VALID 5-DIGIT US ZIP CODE
+// 📍 RESOLVE CITY/STATE INTO ZIP
 async function resolveToZipCode(locationStr) {
   if (!locationStr) return '07030';
-  if (/^(00000|00001|00000-0000|n\/a|unknown|none)$/i.test(locationStr.trim()) || locationStr.includes('00000')) {
-    return '07030';
-  }
+  if (/^(00000|00001|00000-0000|n\/a|unknown|none)$/i.test(locationStr.trim()) || locationStr.includes('00000')) return '07030';
   const isInternational = /(japan|china|uk|united kingdom|canada|germany|australia|hong kong|taiwan|korea|france|italy)/i.test(locationStr);
   if (isInternational) return '90210'; 
-  
   const zipMatch = String(locationStr).match(/\b\d{5}\b/);
   if (zipMatch && zipMatch[0] !== '00000' && zipMatch[0] !== '00001') return zipMatch[0];
-
   try {
     const aiResponse = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: 'Convert the given US city/state location into a valid 5-digit US postal ZIP code. Output ONLY the 5-digit ZIP number.' },
-        { role: 'user', content: locationStr }
-      ],
+      messages: [{ role: 'system', content: 'Convert US city/state to 5-digit ZIP. Output ONLY the ZIP.' }, { role: 'user', content: locationStr }],
       temperature: 0.0,
     });
     const resolvedZip = aiResponse.choices[0].message.content.trim();
-    if (/^\d{5}$/.test(resolvedZip) && resolvedZip !== '00000' && resolvedZip !== '00001') return resolvedZip;
+    if (/^\d{5}$/.test(resolvedZip)) return resolvedZip;
   } catch (err) {}
   return '07030';
 }
 
-// 🌐 AUTO-DETECT BUYER DESTINATION ZIP
+// 🌐 AUTO-DETECT IP ZIP
 async function detectBuyerZipFromIP(req) {
   try {
     let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
@@ -92,124 +85,106 @@ async function detectBuyerZipFromIP(req) {
   return '90210';
 }
 
-// 🚀 SHIPPO LOGISTICS ENGINE: DETERMINISTIC OVERRIDES & LIVE ARBITRAGE
-async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth, finalHeight, finalWeight, pageShippingCost, cleanOriginZip, cleanDestZip, itemTitle = '', itemQuantity = 1) {
-  let boxLength = Number(finalLength);
-  let boxWidth = Number(finalWidth);
-  let boxHeight = Number(finalHeight);
-  let boxWeightOunces = Math.max(1, Math.round(Number(finalWeight)));
-  const lowerTitle = String(itemTitle).toLowerCase();
+// 🚀 NEW 3D VOLUMETRIC BIN PACKING ALGORITHM & LIBRARY
+const PACKAGING_LIBRARY = [
+  // Apparel & Soft Goods (Requires Width & Length fit)
+  { name: 'Small Poly Mailer', type: 'apparel', l: 10, w: 8, h: 1, maxVol: 80, emptyWeight: 0.5 },
+  { name: 'Medium Poly Mailer', type: 'apparel', l: 12, w: 10, h: 2, maxVol: 240, emptyWeight: 1 },
+  { name: 'Large Poly Mailer', type: 'apparel', l: 19, w: 14, h: 4, maxVol: 1064, emptyWeight: 2 },
+  { name: 'Jumbo Poly Mailer', type: 'apparel', l: 24, w: 19, h: 6, maxVol: 2736, emptyWeight: 3 },
+  
+  // Tubes (Requires Length fit only)
+  { name: 'Small Tube Box', type: 'tube', l: 36, w: 4, h: 4, maxVol: 576, emptyWeight: 6 },
+  { name: 'Standard Tube Box', type: 'tube', l: 48, w: 4, h: 4, maxVol: 768, emptyWeight: 8 },
+  { name: 'Long Tube Box', type: 'tube', l: 72, w: 4, h: 4, maxVol: 1152, emptyWeight: 12 },
+  { name: 'Extra Long Tube Box', type: 'tube', l: 96, w: 4, h: 4, maxVol: 1536, emptyWeight: 16 },
+  
+  // Dense & Heavy (Overrides to Flat Rate when beneficial)
+  { name: 'USPS Medium Flat Rate Box', type: 'dense_heavy', l: 11, w: 8.5, h: 5.5, maxVol: 514, emptyWeight: 4 },
+  
+  // Standard Rigid Shipping Boxes (Requires full 3D Volumetric Fit)
+  { name: 'Small Shipping Box', type: 'standard', l: 8, w: 6, h: 4, maxVol: 192, emptyWeight: 3 },
+  { name: 'Medium Shipping Box', type: 'standard', l: 12, w: 9, h: 6, maxVol: 648, emptyWeight: 5 },
+  { name: 'Large Shipping Box', type: 'standard', l: 16, w: 12, h: 8, maxVol: 1536, emptyWeight: 8 },
+  { name: 'XL Shipping Box', type: 'standard', l: 20, w: 16, h: 12, maxVol: 3840, emptyWeight: 16 },
+  { name: 'Heavy-Duty Equipment Box', type: 'standard', l: 24, w: 18, h: 18, maxVol: 7776, emptyWeight: 32 },
+  { name: 'Oversize Freight Box', type: 'standard', l: 30, w: 24, h: 24, maxVol: 17280, emptyWeight: 48 }
+];
 
-  let description = 'Standard Shipping Box';
-
-  // 🛡️ DETERMINISTIC HARD OVERRIDES (Prevent AI logic drift)
-  if (/(tees|balls|grips|towels|hats|socks|patches)/i.test(lowerTitle)) {
-    aiProfile = 'poly_mailer';
-    description = 'Small Poly Mailer';
-    boxLength = 10; boxWidth = 8; boxHeight = 1;
-    boxWeightOunces = 4;
+async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOriginZip, cleanDestZip, itemQuantity = 1) {
+  
+  // 1. Process Multi-Piece Breakdown (e.g. 2-piece fishing rods)
+  let effectiveLength = Number(aiData.baseLength);
+  if (aiData.isMultiPiece === true && Number(aiData.numberOfPieces) > 1) {
+     effectiveLength = Math.ceil(effectiveLength / Number(aiData.numberOfPieces));
   }
 
-  // 🛡️ DETERMINISTIC 2-PIECE ROD / BAT OVERRIDE
-  if (/(2[-\s]?pc|2[-\s]?piece|two[-\s]?piece)/i.test(lowerTitle) && (lowerTitle.includes('rod') || lowerTitle.includes('pole') || lowerTitle.includes('shaft'))) {
-    if (boxLength > 50) {
-      boxLength = Math.ceil(boxLength / 2); // Automatically split in half for 2-piece items
-    }
+  // 2. Calculate Cart Volume & Base Weight
+  let singleVolume = effectiveLength * Number(aiData.baseWidth) * Number(aiData.baseHeight);
+  let totalVolume = singleVolume * itemQuantity;
+  let totalWeightOunces = Number(aiData.baseWeightOunces) * itemQuantity;
+
+  // 3. Apply Compression Physics for specific materials
+  if (aiData.packagingType === 'soft_good') {
+     totalVolume = totalVolume * 0.4; // 60% compression for plush toys/pillows
+  } else if (aiData.packagingType === 'apparel') {
+     totalVolume = totalVolume * 0.6; // 40% compression for stuffed clothing mailers
   }
 
-  // 📐 PACKAGING PROFILE DIMENSIONING
-  if (aiProfile === 'poly_mailer') {
-    if (boxWeightOunces <= 8 || description === 'Small Poly Mailer') {
-      description = 'Small Poly Mailer';
-      boxLength = 10; boxWidth = 8; boxHeight = 1;
-    } else {
-      description = 'Medium Poly Mailer';
-      boxLength = 12; boxWidth = 10; boxHeight = 2;
-      if (/(jacket|coat)/i.test(lowerTitle)) boxWeightOunces = 15; 
-      else boxWeightOunces = 12; 
-    }
-  } else if (aiProfile === 'vacuum_bag') {
-    boxLength = Math.max(10, Math.ceil(boxLength * 0.5));
-    boxWidth = Math.max(8, Math.ceil(boxWidth * 0.5));
-    boxHeight = Math.max(4, Math.ceil(boxHeight * 0.5));
-    description = 'Vacuum-Sealed Mailer / Box';
-  } else if (aiProfile === 'long_tube') {
-    boxLength = Math.max(30, Math.ceil(boxLength));
-    boxWidth = 4;
-    boxHeight = 4;
-    description = 'Long Tube / Shaft Box';
-  } else if (aiProfile === 'flat_rate_box') {
-    // Official USPS Medium Flat Rate Box Dimensions
-    boxLength = 11;
-    boxWidth = 8.5;
-    boxHeight = 5.5;
-    description = 'USPS Medium Flat Rate Box';
-  } else if (aiProfile === 'heavy_box') {
-    if (boxHeight > 20) boxHeight = Math.ceil(boxHeight * 0.5); 
-    boxLength = Math.max(16, Math.ceil(boxLength));
-    boxWidth = Math.max(14, Math.ceil(boxWidth));
-    description = 'Heavy-Duty Equipment Box';
-  } else if (aiProfile === 'small_box') {
-    boxLength = Math.max(Math.ceil(boxLength + 1), 8);
-    boxWidth = Math.max(Math.ceil(boxWidth + 1), 6);
-    boxHeight = Math.max(Math.ceil(boxHeight + 1), 4);
-    description = 'Small Shipping Box (Protective)';
-  } else {
-    // standard_box (Aligned with standard 12x9x6 industry box)
-    boxLength = Math.max(12, Math.ceil(boxLength));
-    boxWidth = Math.max(9, Math.ceil(boxWidth));
-    boxHeight = Math.max(6, Math.ceil(boxHeight));
+  // 4. Map the requested packaging type to available library categories
+  let allowedTypes = [aiData.packagingType, 'standard']; 
+  if (aiData.packagingType === 'soft_good') allowedTypes = ['apparel', 'standard']; // Fallback squishmallows to mailers
+
+  let selectedBox = null;
+
+  for (const type of allowedTypes) {
+      let candidates = PACKAGING_LIBRARY.filter(box => {
+          if (box.type !== type) return false;
+          if (box.maxVol < totalVolume) return false;
+          
+          let boxDims = [box.l, box.w, box.h].sort((a,b) => b - a);
+          let itemDims = [effectiveLength, Number(aiData.baseWidth), Number(aiData.baseHeight)].sort((a,b) => b - a);
+          
+          if (type === 'tube') return box.l >= effectiveLength;
+          if (type === 'apparel') return box.l >= effectiveLength && box.w >= Math.min(Number(aiData.baseWidth), Number(aiData.baseHeight));
+          
+          return boxDims[0] >= itemDims[0] && boxDims[1] >= itemDims[1] && boxDims[2] >= itemDims[2];
+      });
+
+      if (candidates.length > 0) {
+          candidates.sort((a, b) => a.maxVol - b.maxVol);
+          selectedBox = candidates[0];
+          break; // Stop looking once we find the smallest box in preferred category
+      }
   }
 
-  // 🚀 MULTI-ITEM QUANTITY SCALING ENGINE
-  if (itemQuantity > 1) {
-    boxWeightOunces = boxWeightOunces * itemQuantity;
-    let scaleFactor = Math.pow(itemQuantity, 1/3); 
-    
-    if (aiProfile === 'poly_mailer' || description.includes('Poly Mailer')) {
-       description = 'Large Poly Mailer';
-       boxLength = Math.max(15, Math.ceil(boxLength + (itemQuantity * 0.5))); 
-       boxWidth = Math.max(12, Math.ceil(boxWidth + (itemQuantity * 0.5)));   
-       boxHeight = Math.max(3, Math.ceil(boxHeight + (itemQuantity * 0.6)));  
-    } else if (aiProfile === 'flat_rate_box') {
-       description = 'Heavy-Duty Equipment Box (Multi-Item)';
-       aiProfile = 'heavy_box'; 
-       boxLength = Math.ceil(boxLength * scaleFactor);
-       boxWidth = Math.ceil(boxWidth * scaleFactor);
-       boxHeight = Math.ceil(boxHeight * scaleFactor);
-    } else {
-       description = description.includes('Box') ? description.replace('Box', 'Box (Multi-Item)') : description + ' (Multi-Item)';
-       boxLength = Math.ceil(boxLength * scaleFactor);
-       boxWidth = Math.ceil(boxWidth * scaleFactor);
-       boxHeight = Math.ceil(boxHeight * scaleFactor);
-    }
+  // Failsafe for utterly massive cart quantities
+  if (!selectedBox) {
+      selectedBox = {
+          name: 'Custom Freight Box',
+          l: Math.ceil(effectiveLength),
+          w: Math.ceil(Number(aiData.baseWidth)),
+          h: Math.ceil(Number(aiData.baseHeight) * Math.pow(itemQuantity, 1/3)),
+          emptyWeight: 40
+      };
   }
+
+  let boxLength = selectedBox.l;
+  let boxWidth = selectedBox.w;
+  let boxHeight = selectedBox.h;
+  let boxWeight = Math.max(1, Math.round(totalWeightOunces + selectedBox.emptyWeight));
+  let finalDescription = selectedBox.name + (itemQuantity > 1 ? ' (Multi-Item)' : '');
 
   let calculatedRateNum = 7.45; 
   let assignedCarrier = 'USPS Ground Advantage';
 
   try {
-    console.log(`📦 SHIPPO ENGINE: [Profile: ${aiProfile}] Package [${boxLength}x${boxWidth}x${boxHeight} in, ${boxWeightOunces} oz]`);
-    console.log(`📍 SHIPPO ROUTE: Origin ZIP (${cleanOriginZip}) ➡️ Destination ZIP (${cleanDestZip})`);
+    console.log(`📦 BIN PACKING SUCCESS: [${finalDescription}] Package [${boxLength}x${boxWidth}x${boxHeight} in, ${boxWeight} oz]`);
 
     const shipment = await shippo.shipments.create({
       addressTo: { zip: cleanDestZip, country: 'US' }, 
-      addressFrom: {
-        name: 'BoxBuddy Seller',
-        street1: '123 Main St',
-        city: 'Origin City',
-        state: 'US',
-        zip: cleanOriginZip, 
-        country: 'US'
-      },
-      parcels: [{
-        length: String(boxLength),
-        width: String(boxWidth),
-        height: String(boxHeight),
-        distanceUnit: 'in',
-        weight: String(boxWeightOunces), 
-        massUnit: 'oz'
-      }],
+      addressFrom: { name: 'Seller', street1: '123 Main St', city: 'Origin', state: 'US', zip: cleanOriginZip, country: 'US' },
+      parcels: [{ length: String(boxLength), width: String(boxWidth), height: String(boxHeight), distanceUnit: 'in', weight: String(boxWeight), massUnit: 'oz' }],
       async: false
     });
 
@@ -219,52 +194,37 @@ async function compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth,
         const rateVal = parseFloat(rate.rate || rate.amount || 0);
         return rateVal < minVal ? rate : min;
       }, shipment.rates[0]);
-      
       calculatedRateNum = parseFloat(cheapestRate.rate || cheapestRate.amount || 7.45);
-      
-      let serviceName = 'Standard';
-      if (cheapestRate.servicelevel && typeof cheapestRate.servicelevel === 'object' && cheapestRate.servicelevel.name) {
-        serviceName = cheapestRate.servicelevel.name;
-      } else if (cheapestRate.servicelevel) {
-        serviceName = String(cheapestRate.servicelevel);
-      } else if (cheapestRate.servicelevelName) {
-        serviceName = cheapestRate.servicelevelName;
-      }
-      
-      assignedCarrier = (cheapestRate.provider || 'Carrier') + ' ' + serviceName;
-      console.log('🎯 LOWEST SHIPPO RATE SECURED -> ' + assignedCarrier + ': $' + calculatedRateNum);
+      let svcName = cheapestRate.servicelevel ? (cheapestRate.servicelevel.name || cheapestRate.servicelevel) : cheapestRate.servicelevelName;
+      assignedCarrier = (cheapestRate.provider || 'Carrier') + ' ' + svcName;
     }
-  } catch (shippoError) {
-    console.log('💡 Shippo pipeline warning: ' + shippoError.message);
+  } catch (err) {
+    console.log('💡 Shippo pipeline warning: ' + err.message);
   }
 
-  // 🚀 MULTI-CARRIER ARBITRAGE & FLAT RATE OVERRIDE
   const numericPageCost = Number(pageShippingCost);
   
   if (numericPageCost > 0 && calculatedRateNum >= numericPageCost) {
-    if ((aiProfile === 'heavy_box' || aiProfile === 'long_tube') && itemQuantity === 1) {
+    if ((aiData.packagingType === 'standard' && boxLength >= 20 || aiData.packagingType === 'tube') && itemQuantity === 1) {
       assignedCarrier = 'UPS Ground (Commercial)';
       calculatedRateNum = numericPageCost * 0.82; 
     }
   }
 
-  if (aiProfile === 'flat_rate_box' && calculatedRateNum > 15.50 && itemQuantity === 1) {
+  if (selectedBox.name === 'USPS Medium Flat Rate Box' && calculatedRateNum > 15.50 && itemQuantity === 1) {
     assignedCarrier = 'USPS Priority Mail (Flat Rate)';
     calculatedRateNum = 14.50; 
   }
 
   const trueSavingsNum = numericPageCost - calculatedRateNum;
-  const formattedSavings = '$' + Math.abs(trueSavingsNum).toFixed(2);
-  const isSaving = numericPageCost > 0 && trueSavingsNum > 0;
-
   return {
     success: true,
-    boxModel: description,
+    boxModel: finalDescription,
     dimensions: boxLength + ' x ' + boxWidth + ' x ' + boxHeight + ' in',
     liveRate: '$' + calculatedRateNum.toFixed(2),
     carrier: assignedCarrier,
-    buttonTextBuyer: isSaving ? 'Optimized! Saved ' + formattedSavings + ' 🎉' : 'Alternative Rate: $' + calculatedRateNum.toFixed(2),
-    buttonTextSeller: isSaving ? 'Profit Increased by ' + formattedSavings + ' 💰' : 'Alternative Rate: $' + calculatedRateNum.toFixed(2)
+    buttonTextBuyer: (numericPageCost > 0 && trueSavingsNum > 0) ? 'Optimized! Saved $' + Math.abs(trueSavingsNum).toFixed(2) + ' 🎉' : 'Alternative Rate: $' + calculatedRateNum.toFixed(2),
+    buttonTextSeller: (numericPageCost > 0 && trueSavingsNum > 0) ? 'Profit Increased by $' + Math.abs(trueSavingsNum).toFixed(2) + ' 💰' : 'Alternative Rate: $' + calculatedRateNum.toFixed(2)
   };
 }
 
@@ -274,55 +234,33 @@ app.post('/api/optimize', async (req, res) => {
   const itemQuantity = quantity ? parseInt(quantity, 10) : 1;
   const userId = browserExtensionId || 'anonymous_user_guest';
 
-  const parsedWeight = parseToOunces(weight) || (itemSpecifics ? parseToOunces(itemSpecifics.weight) : null);
-
-  console.log('==========================================');
-  console.log('📥 PIPELINE REQUEST FOR USER ID: [' + userId + ']');
-  console.log('📦 REQUESTED QUANTITY: ' + itemQuantity);
+  console.log('📥 PIPELINE REQUEST FOR USER ID: [' + userId + '] | QTY: ' + itemQuantity);
 
   try {
     let userRecord = await db.findOne({ userId });
-    if (!userRecord) { userRecord = await db.insert({ userId, credits: 3 }); }
-    if (userRecord.credits <= 0) {
-      return res.json({ success: false, requiresPayment: true });
-    }
+    if (!userRecord) userRecord = await db.insert({ userId, credits: 3 });
+    if (userRecord.credits <= 0) return res.json({ success: false, requiresPayment: true });
 
     const newBalance = userRecord.credits - 1;
     await db.update({ userId }, { $set: { credits: newBalance } });
 
     const cleanOriginZip = await resolveToZipCode(originLocation);
-    let cleanDestZip = '90210';
-    if (destinationZip && /^\d{5}$/.test(String(destinationZip).trim())) {
-      cleanDestZip = String(destinationZip).trim();
-    } else if (destinationZip) {
-      cleanDestZip = await resolveToZipCode(destinationZip);
-    } else {
-      cleanDestZip = await detectBuyerZipFromIP(req);
-    }
+    let cleanDestZip = destinationZip && /^\d{5}$/.test(String(destinationZip).trim()) ? String(destinationZip).trim() : await detectBuyerZipFromIP(req);
 
     let pageShippingCost = 21.55;
     if (itemSpecifics) {
-      if (itemSpecifics.isFreeShipping === true || itemSpecifics.listedShippingCost === 0) {
-        pageShippingCost = 0;
-      } else if (itemSpecifics.listedShippingCost !== undefined && itemSpecifics.listedShippingCost !== null) {
-        pageShippingCost = parseFloat(itemSpecifics.listedShippingCost);
-      }
+      if (itemSpecifics.isFreeShipping === true || itemSpecifics.listedShippingCost === 0) pageShippingCost = 0;
+      else if (itemSpecifics.listedShippingCost !== undefined) pageShippingCost = parseFloat(itemSpecifics.listedShippingCost);
     }
 
     const cleanedTitle = sanitizeTitleForSearch(title);
     let searchContext = '';
-
     try {
-      const payloadObject = { q: cleanedTitle + ' technical specification dimensions length width height weight' };
-      const serperResponse = await axios.post('https://serper.dev', payloadObject, {
-        headers: { 'X-API-KEY': process.env.SERPER_API_KEY, 'Content-Type': 'application/json' }
-      });
-      if (serperResponse.data && serperResponse.data.organic) {
-        searchContext = serperResponse.data.organic.map(item => item.snippet).join(' ');
-      }
+      const serperResponse = await axios.post('https://serper.dev', { q: cleanedTitle + ' dimensions length width height weight' }, { headers: { 'X-API-KEY': process.env.SERPER_API_KEY, 'Content-Type': 'application/json' } });
+      if (serperResponse.data && serperResponse.data.organic) searchContext = serperResponse.data.organic.map(item => item.snippet).join(' ');
     } catch (searchErr) {}
 
-    let finalLength = 12, finalWidth = 10, finalHeight = 4, finalWeight = 16, aiProfile = 'standard_box';
+    let aiData = { packagingType: 'standard', baseLength: 12, baseWidth: 10, baseHeight: 4, baseWeightOunces: 16, isMultiPiece: false, numberOfPieces: 1 };
 
     try {
       const aiResponse = await openai.chat.completions.create({
@@ -330,40 +268,33 @@ app.post('/api/optimize', async (req, res) => {
         messages: [
           { 
             role: 'system', 
-            content: `You are an expert e-commerce packaging logistics AI. Your task is to semantically analyze the product title and context, determine the correct packaging profile category, and output actual dimensions (inches) and weight (ounces).
+            content: `You are an expert e-commerce logistics AI. Semantically analyze the product title, context, and item specifics to determine the physical properties of ONE UNOPENED unit.
 
-CRITICAL INSTRUCTIONS: 
-1. Extract UNOPENED SHIPPING BOX dimensions, NEVER assembled dimensions.
-2. DO NOT route small accessories (e.g., Golf Tees, Golf Balls, Grips) to "long_tube". Force them to poly_mailer.
-
-PACKAGING PROFILES:
-- "poly_mailer" : Single apparel items, soft goods, small accessories (tees, balls). DO NOT USE for "Lots" or Multiples.
-- "vacuum_bag" : Use ONLY for highly compressible soft goods like Plush Toys, Squishmallows.
-- "long_tube" : Use for long, thin items like Golf Clubs, Fishing Rods, and Baseball Bats.
-- "flat_rate_box" : Use for tiny but extremely dense/heavy items (e.g., Kettlebells).
-- "heavy_box" : Large, bulky, or heavy items (e.g., 3D printers, receivers).
-- "standard_box" : Shoe boxes, T-Shirt Lots/Bundles, or anything else.
+CRITICAL INSTRUCTIONS:
+1. "packagingType" must be ONE of these exact strings:
+   - "apparel" (clothing, hats, small unbreakable accessories like golf tees, balls, grips, towels)
+   - "soft_good" (highly compressible: plush toys, squishmallows, pillows)
+   - "tube" (long thin items: golf clubs, fishing rods, baseball bats)
+   - "dense_heavy" (small but extremely heavy: kettlebells, cast iron)
+   - "standard" (everything else: electronics, shoes, 3D printers, household items)
+2. If the listing specifies it breaks down (e.g., "2 pcs", "2-piece" fishing rod), set "isMultiPiece" to true and "numberOfPieces" to the integer. Otherwise false and 1.
+3. For small accessories (golf tees, balls, socks), set packagingType to "apparel" to force poly mailer routing. DO NOT put accessories in tubes.
 
 Output ONLY a valid JSON object matching this structure:
-{"packagingProfile": "poly_mailer|vacuum_bag|long_tube|flat_rate_box|small_box|heavy_box|standard_box", "length": number, "width": number, "height": number, "weight": number}` 
+{"packagingType": "string", "baseLength": number, "baseWidth": number, "baseHeight": number, "baseWeightOunces": number, "isMultiPiece": boolean, "numberOfPieces": number}` 
           },
           { role: 'user', content: 'Title: ' + title + '\nContext: ' + searchContext + '\nItem Specifics: ' + JSON.stringify(itemSpecifics) }
         ],
         temperature: 0.1,
       });
 
-      let rawText = aiResponse.choices[0].message.content.trim();
-      rawText = rawText.replace(/```json/g, '').replace(/```/g, '').trim();
-      const parsedData = JSON.parse(rawText);
-
-      aiProfile = parsedData.packagingProfile || 'standard_box';
-      finalLength = Number(parsedData.length) || finalLength;
-      finalWidth = Number(parsedData.width) || finalWidth;
-      finalHeight = Number(parsedData.height) || finalHeight;
-      finalWeight = Number(parsedData.weight) || finalWeight;
+      let rawText = aiResponse.choices[0].message.content.trim().replace(/```json/g, '').replace(/```/g, '').trim();
+      let parsedData = JSON.parse(rawText);
+      aiData = { ...aiData, ...parsedData };
     } catch (aiErr) {}
 
-    const responseData = await compileLiveCarrierBoxResponse(aiProfile, finalLength, finalWidth, finalHeight, parsedWeight || finalWeight, pageShippingCost, cleanOriginZip, cleanDestZip, title, itemQuantity);
+    // Pass the structured AI output to the Bin Packing Engine
+    const responseData = await compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOriginZip, cleanDestZip, itemQuantity);
     responseData.remainingCredits = newBalance;
     return res.json(responseData);
 
@@ -384,17 +315,9 @@ app.get('/api/credits', async (req, res) => {
 app.post('/api/create-checkout-session', async (req, res) => {
   const { browserExtensionId, packageType } = req.body;
   const targetUserId = browserExtensionId || 'anonymous_user_guest';
-
-  let unitAmount = 99; 
-  let creditQuantity = 5;
-  let packageName = 'BoxBuddy Starter Pack (5 Credits)';
-
-  if (packageType === 'pro' || packageType === '50') {
-    unitAmount = 499; creditQuantity = 50; packageName = 'BoxBuddy Pro Pack (50 Credits)';
-  } else if (packageType === 'enterprise' || packageType === '100') {
-    unitAmount = 999; creditQuantity = 100; packageName = 'BoxBuddy Enterprise Pack (100 Credits)';
-  }
-
+  let unitAmount = 99; let creditQuantity = 5; let packageName = 'BoxBuddy Starter Pack (5 Credits)';
+  if (packageType === 'pro' || packageType === '50') { unitAmount = 499; creditQuantity = 50; packageName = 'BoxBuddy Pro Pack (50 Credits)'; } 
+  else if (packageType === 'enterprise' || packageType === '100') { unitAmount = 999; creditQuantity = 100; packageName = 'BoxBuddy Enterprise Pack (100 Credits)'; }
   try {
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -405,16 +328,13 @@ app.post('/api/create-checkout-session', async (req, res) => {
       cancel_url: `https://boxbuddy-backend.onrender.com/api/stripe/cancel`,
     });
     res.json({ url: session.url });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to create checkout session' });
-  }
+  } catch (err) { res.status(500).json({ error: 'Failed to create checkout session' }); }
 });
 
 // 💳 STRIPE SUCCESS FULFILLMENT ROUTE
 app.get('/api/stripe/success', async (req, res) => {
   const sessionId = req.query.session_id;
   let tokensAwarded = 5, targetUserId = 'anonymous_user_guest';
-
   try {
     if (sessionId && sessionId.startsWith('cs_')) {
       const session = await stripe.checkout.sessions.retrieve(sessionId);
@@ -436,14 +356,10 @@ app.get('/api/stripe/success', async (req, res) => {
       <h1>Refill Successful! 🎉</h1>
       <p>Added <strong>${tokensAwarded}</strong> credits to your account.</p>
       <p>Your new total balance is <strong>${newTotalCredits} credits</strong>.</p>
-      <div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px; border-radius: 8px; max-width: 400px; margin: 20px auto; color: #166534;">
-        <p style="margin: 0; font-weight: bold;">You're all set!</p>
-        <p style="margin: 5px 0 0 0; font-size: 14px;">Go back to your eBay shopping tab and refresh the page to see your updated balance.</p>
-      </div>
     </div>
   `);
 });
 
 app.listen(PORT, () => {
-  console.log('🚀 BoxBuddy AI Multi-Carrier Optimization Engine active on port ' + PORT);
+  console.log('🚀 BoxBuddy AI 3D Volumetric Engine active on port ' + PORT);
 });
