@@ -1,5 +1,5 @@
 // ==========================================================================
-// PACKSPEC AI - BOXBUDDY SECURED BACKEND INFRASTRUCTURE (V3 - HYBRID)
+// PACKSPEC AI - BOXBUDDY SECURED BACKEND INFRASTRUCTURE (V4 - FINAL)
 // ==========================================================================
 
 // 🌐 NODE.JS ENVIRONMENT POLYFILL
@@ -26,7 +26,6 @@ const PORT = process.env.PORT || 3000;
 
 app.set('trust proxy', true);
 
-// 🗄️ DATABASES (Added payments.db for Stripe Idempotency)
 const db = Datastore.create({ filename: 'users.db', autoload: true });
 const payments = Datastore.create({ filename: 'payments.db', autoload: true }); 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -44,7 +43,7 @@ function sanitizeTitleForSearch(rawTitle) {
     .trim();
 }
 
-// 📍 RESOLVE CITY/STATE INTO ZIP (Upgraded to Zippopotam.us API)
+// 📍 RESOLVE CITY/STATE INTO ZIP 
 async function resolveToZipCode(locationStr) {
   if (!locationStr) return '07030';
   if (/^(00000|00001|00000-0000|n\/a|unknown|none)$/i.test(locationStr.trim()) || locationStr.includes('00000')) return '07030';
@@ -65,9 +64,7 @@ async function resolveToZipCode(locationStr) {
           if (r.data?.places?.[0]?.['post code']) return r.data.places[0]['post code'];
       }
     }
-  } catch (err) {
-      console.log('💡 Zippopotamus lookup failed, falling back to 07030');
-  }
+  } catch (err) {}
   return '07030';
 }
 
@@ -84,25 +81,26 @@ async function detectBuyerZipFromIP(req) {
 
 // 🚀 3D VOLUMETRIC BIN PACKING ALGORITHM & LIBRARY
 const PACKAGING_LIBRARY = [
-  // Apparel (Physics: Bypasses rigid width checks, constrained by physical maxQty capacity)
+  // Apparel (Expanded Capacities for Bulk Clothing)
   { name: 'Small Poly Mailer', type: 'apparel', l: 10, w: 8, h: 1, maxVol: 80, emptyWeight: 0.5, maxQty: 2 },
-  { name: 'Medium Poly Mailer', type: 'apparel', l: 12, w: 10, h: 2, maxVol: 240, emptyWeight: 1, maxQty: 2 },
-  { name: 'Large Poly Mailer', type: 'apparel', l: 19, w: 14, h: 4, maxVol: 1064, emptyWeight: 2, maxQty: 4 },
-  { name: 'Jumbo Poly Mailer', type: 'apparel', l: 24, w: 19, h: 6, maxVol: 2736, emptyWeight: 3, maxQty: 6 },
+  { name: 'Medium Poly Mailer', type: 'apparel', l: 12, w: 10, h: 2, maxVol: 240, emptyWeight: 1, maxQty: 4 },
+  { name: 'Large Poly Mailer', type: 'apparel', l: 19, w: 14, h: 4, maxVol: 1064, emptyWeight: 2, maxQty: 8 },
+  { name: 'Jumbo Poly Mailer', type: 'apparel', l: 24, w: 19, h: 6, maxVol: 2736, emptyWeight: 3, maxQty: 15 },
   
-  // Soft Goods (Plushies, Pillows)
+  // Soft Goods
   { name: 'Vacuum-Sealed Mailer / Box', type: 'soft_good', l: 14, w: 12, h: 6, maxVol: 1008, emptyWeight: 1.5, maxQty: 4 },
   
-  // Tubes (Physics: Requires Length fit, ignores standard XYZ mapping)
+  // Tubes (Added 60-inch Tube for 2-Piece 9-foot Rods)
   { name: 'Small Tube Box', type: 'tube', l: 36, w: 4, h: 4, maxVol: 576, emptyWeight: 6 },
   { name: 'Standard Tube Box', type: 'tube', l: 48, w: 4, h: 4, maxVol: 768, emptyWeight: 8 },
+  { name: 'Medium Tube Box', type: 'tube', l: 60, w: 4, h: 4, maxVol: 960, emptyWeight: 10 },
   { name: 'Long Tube Box', type: 'tube', l: 72, w: 4, h: 4, maxVol: 1152, emptyWeight: 12 },
   { name: 'Extra Long Tube Box', type: 'tube', l: 96, w: 4, h: 4, maxVol: 1536, emptyWeight: 16 },
   
-  // Dense & Heavy (Physics: Overrides to Flat Rate when beneficial)
+  // Dense & Heavy
   { name: 'USPS Medium Flat Rate Box', type: 'dense_heavy', l: 11, w: 8.5, h: 5.5, maxVol: 514, emptyWeight: 4 },
   
-  // Standard Rigid Shipping Boxes (Physics: Requires absolute 3D Volumetric Fit)
+  // Standard Rigid Shipping Boxes
   { name: 'Small Shipping Box', type: 'standard', l: 8, w: 6, h: 4, maxVol: 192, emptyWeight: 3 },
   { name: 'Medium Shipping Box', type: 'standard', l: 12, w: 9, h: 6, maxVol: 648, emptyWeight: 5 },
   { name: 'Large Shipping Box', type: 'standard', l: 16, w: 12, h: 8, maxVol: 1536, emptyWeight: 8 },
@@ -142,7 +140,6 @@ async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOrig
       if (!allowedTypes.includes(box.type)) return false;
       if (box.maxVol < totalVolume) return false; 
       
-      // Apparel maxQty capacity lock. Forces boxes for bulk clothing.
       if (box.maxQty && itemQuantity > box.maxQty) return false;
       
       let boxDims = [box.l, box.w, box.h];
@@ -150,12 +147,10 @@ async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOrig
       
       if (box.type === 'tube') {
           return Math.max(...boxDims) >= effectiveLength;
-      } else if (box.type === 'soft_good') {
-          return true; // Vacuum bags squish to fit volume
-      } else if (box.type === 'apparel') {
-          return (Math.max(...boxDims) * 1.5 >= effectiveLength) && (Math.min(...boxDims) * 1.5 >= Math.min(...itemDims));
+      } else if (box.type === 'soft_good' || box.type === 'apparel') {
+          // 🛡️ BAG PHYSICS: Mailers are bags, not rigid boxes. Volume & Qty bounds dictate fit.
+          return true; 
       } else {
-          // 🛡️ UPGRADE: 6-Way 3D Permutation Check for Rigid Boxes
           for (const p of PERMUTATIONS) {
               if (boxDims[0] >= itemDims[p[0]] && boxDims[1] >= itemDims[p[1]] && boxDims[2] >= itemDims[p[2]]) {
                   return true;
@@ -209,26 +204,29 @@ async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOrig
     console.log('💡 Shippo pipeline warning: ' + err.message);
   }
 
-  // 🛡️ Oversize Sandbox Fallback Override (Preserves testing on huge items)
-  if (selectedBox.type === 'tube' || selectedBox.name.includes('Freight')) {
-      if (boxLength > 48 && calculatedRateNum < 25) {
-          calculatedRateNum = 28.50; 
-          assignedCarrier = 'UPS Ground (Oversize)';
-      } else if (boxLength > 30 && calculatedRateNum < 15) {
-          calculatedRateNum = 18.50; 
-          assignedCarrier = 'USPS Ground Advantage (Non-Standard)';
-      }
+  // 🛡️ API SANDBOX DIM-WEIGHT REALITY CHECK
+  let volumetricWeightLb = (boxLength * boxWidth * boxHeight) / 139;
+  let estimatedRealisticCost = Math.max(7.45, volumetricWeightLb * 1.50);
+  
+  if (calculatedRateNum < estimatedRealisticCost * 0.5) {
+      calculatedRateNum = estimatedRealisticCost;
+      if (boxLength > 30) assignedCarrier = 'UPS Ground (Oversize)';
+  } else if (calculatedRateNum > 100 && boxLength < 30) {
+      calculatedRateNum = (boxWeight / 16) * 4 + 10;
+      assignedCarrier = 'USPS Ground Advantage';
   }
 
   const numericPageCost = Number(pageShippingCost);
   
-  // 🛡️ ARBITRAGE ENGINE (Preserved and active)
-  if (numericPageCost > 0 && calculatedRateNum > numericPageCost && itemQuantity === 1) {
-      calculatedRateNum = numericPageCost * 0.82;
-      if (boxLength >= 20 || selectedBox.type === 'tube') {
-          assignedCarrier = 'UPS Ground (Commercial Discount)';
-      } else {
-          assignedCarrier = 'USPS Ground Advantage (Commercial Discount)';
+  // 🛡️️ UNIVERSAL ARBITRAGE ENGINE
+  if (numericPageCost > 0 && itemQuantity === 1) {
+      if (calculatedRateNum >= numericPageCost || calculatedRateNum > (numericPageCost * 0.82)) {
+          calculatedRateNum = numericPageCost * 0.82;
+          if (boxLength >= 20 || selectedBox.type === 'tube') {
+              assignedCarrier = 'UPS Ground (Commercial Discount)';
+          } else {
+              assignedCarrier = 'USPS Ground Advantage (Commercial Discount)';
+          }
       }
   }
 
@@ -277,7 +275,6 @@ app.post('/api/optimize', async (req, res) => {
     const cleanedTitle = sanitizeTitleForSearch(title);
     let searchContext = '';
     try {
-      // 🛡️ UPGRADE: Fixed Google Serper Endpoint
       const serperResponse = await axios.post('https://google.serper.dev/search', { q: cleanedTitle + ' dimensions length width height weight' }, { headers: { 'X-API-KEY': process.env.SERPER_API_KEY, 'Content-Type': 'application/json' } });
       if (serperResponse.data && serperResponse.data.organic) searchContext = serperResponse.data.organic.map(item => item.snippet).join(' ');
     } catch (searchErr) {}
@@ -311,7 +308,6 @@ Output ONLY a valid JSON object matching this structure:
       
       const lowerTitle = String(title).toLowerCase();
       
-      // Word Boundary Regex for Accessories
       if (/\b(tee|tees|glove|gloves|ball|balls|grip|grips|towel|towels|sock|socks|hat|hats|beanie|beanies)\b/.test(lowerTitle)) {
           aiData.packagingType = 'apparel';
           aiData.baseLength = 8;
@@ -320,7 +316,6 @@ Output ONLY a valid JSON object matching this structure:
           aiData.baseWeightOunces = 4;
       }
 
-      // Tube regex
       const isTubeItem = lowerTitle.includes('rod') || lowerTitle.includes('pole') || lowerTitle.includes('shaft') || lowerTitle.includes('bat') || lowerTitle.includes('fishing') || lowerTitle.includes('shimano');
       
       if (isTubeItem) {
@@ -379,7 +374,7 @@ app.post('/api/create-checkout-session', async (req, res) => {
   } catch (err) { res.status(500).json({ error: 'Failed to create checkout session' }); }
 });
 
-// 💳 STRIPE SUCCESS FULFILLMENT ROUTE (🛡️ UPGRADE: Idempotent Database Security)
+// 💳 STRIPE SUCCESS FULFILLMENT ROUTE 
 app.get('/api/stripe/success', async (req, res) => {
   const sessionId = req.query.session_id;
   let tokensAwarded = 0;
@@ -390,25 +385,18 @@ app.get('/api/stripe/success', async (req, res) => {
       const session = await stripe.checkout.sessions.retrieve(sessionId);
       
       if (session.payment_status === 'paid') {
-          // Check if this specific payment was already fulfilled
           const existingPayment = await payments.findOne({ _id: sessionId });
-          
           if (!existingPayment) {
-              // Record it so it can never be processed again
               await payments.insert({ _id: sessionId, at: Date.now() });
-              
               const totalPaid = session.amount_total;
               if (session.client_reference_id) targetUserId = session.client_reference_id;
-              
               if (totalPaid >= 900) tokensAwarded = 100; 
               else if (totalPaid >= 400) tokensAwarded = 50; 
               else tokensAwarded = 5;
           }
       }
     }
-  } catch (err) {
-      console.log('Stripe Fulfilment Warning:', err.message);
-  }
+  } catch (err) {}
 
   let newTotalCredits = 0;
   if (tokensAwarded > 0) {
@@ -436,5 +424,5 @@ app.get('/api/stripe/success', async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log('🚀 BoxBuddy AI 3D Volumetric Engine (Hybrid) active on port ' + PORT);
+  console.log('🚀 BoxBuddy AI 3D Volumetric Engine (V4) active on port ' + PORT);
 });
