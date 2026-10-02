@@ -32,7 +32,7 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 app.use(cors());
 app.use(express.json());
 
-// 🧹 TITLE SANITIZATION
+// 🧹 TITLE SANITIZATION HELPER
 function sanitizeTitleForSearch(rawTitle) {
   if (!rawTitle) return '';
   return rawTitle
@@ -42,7 +42,7 @@ function sanitizeTitleForSearch(rawTitle) {
     .trim();
 }
 
-// 📍 RESOLVE ZIP
+// 📍 RESOLVE CITY/STATE INTO ZIP
 async function resolveToZipCode(locationStr) {
   if (!locationStr) return '07030';
   if (/^(00000|00001|00000-0000|n\/a|unknown|none)$/i.test(locationStr.trim()) || locationStr.includes('00000')) return '07030';
@@ -62,7 +62,7 @@ async function resolveToZipCode(locationStr) {
   return '07030';
 }
 
-// 🌐 AUTO-DETECT IP
+// 🌐 AUTO-DETECT IP ZIP
 async function detectBuyerZipFromIP(req) {
   try {
     let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || '';
@@ -75,25 +75,25 @@ async function detectBuyerZipFromIP(req) {
 
 // 🚀 3D VOLUMETRIC BIN PACKING ALGORITHM & LIBRARY
 const PACKAGING_LIBRARY = [
-  // Apparel
-  { name: 'Small Poly Mailer', type: 'apparel', l: 10, w: 8, h: 1, maxVol: 80, emptyWeight: 0.5 },
-  { name: 'Medium Poly Mailer', type: 'apparel', l: 12, w: 10, h: 2, maxVol: 240, emptyWeight: 1 },
-  { name: 'Large Poly Mailer', type: 'apparel', l: 19, w: 14, h: 4, maxVol: 1064, emptyWeight: 2 },
-  { name: 'Jumbo Poly Mailer', type: 'apparel', l: 24, w: 19, h: 6, maxVol: 2736, emptyWeight: 3 },
+  // Apparel (Physics: Bypasses rigid width checks, constrained by physical maxQty capacity)
+  { name: 'Small Poly Mailer', type: 'apparel', l: 10, w: 8, h: 1, maxVol: 80, emptyWeight: 0.5, maxQty: 2 },
+  { name: 'Medium Poly Mailer', type: 'apparel', l: 12, w: 10, h: 2, maxVol: 240, emptyWeight: 1, maxQty: 2 },
+  { name: 'Large Poly Mailer', type: 'apparel', l: 19, w: 14, h: 4, maxVol: 1064, emptyWeight: 2, maxQty: 4 },
+  { name: 'Jumbo Poly Mailer', type: 'apparel', l: 24, w: 19, h: 6, maxVol: 2736, emptyWeight: 3, maxQty: 6 },
   
-  // Soft Goods
-  { name: 'Vacuum-Sealed Mailer / Box', type: 'soft_good', l: 14, w: 12, h: 6, maxVol: 1008, emptyWeight: 1.5 },
+  // Soft Goods (Plushies, Pillows)
+  { name: 'Vacuum-Sealed Mailer / Box', type: 'soft_good', l: 14, w: 12, h: 6, maxVol: 1008, emptyWeight: 1.5, maxQty: 4 },
   
-  // Tubes 
+  // Tubes (Physics: Requires Length fit, ignores standard XYZ mapping)
   { name: 'Small Tube Box', type: 'tube', l: 36, w: 4, h: 4, maxVol: 576, emptyWeight: 6 },
   { name: 'Standard Tube Box', type: 'tube', l: 48, w: 4, h: 4, maxVol: 768, emptyWeight: 8 },
   { name: 'Long Tube Box', type: 'tube', l: 72, w: 4, h: 4, maxVol: 1152, emptyWeight: 12 },
   { name: 'Extra Long Tube Box', type: 'tube', l: 96, w: 4, h: 4, maxVol: 1536, emptyWeight: 16 },
   
-  // Dense & Heavy
+  // Dense & Heavy (Physics: Overrides to Flat Rate when beneficial)
   { name: 'USPS Medium Flat Rate Box', type: 'dense_heavy', l: 11, w: 8.5, h: 5.5, maxVol: 514, emptyWeight: 4 },
   
-  // Standard Rigid Shipping Boxes
+  // Standard Rigid Shipping Boxes (Physics: Requires absolute 3D Volumetric Fit)
   { name: 'Small Shipping Box', type: 'standard', l: 8, w: 6, h: 4, maxVol: 192, emptyWeight: 3 },
   { name: 'Medium Shipping Box', type: 'standard', l: 12, w: 9, h: 6, maxVol: 648, emptyWeight: 5 },
   { name: 'Large Shipping Box', type: 'standard', l: 16, w: 12, h: 8, maxVol: 1536, emptyWeight: 8 },
@@ -113,7 +113,7 @@ async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOrig
   let totalVolume = singleVolume * itemQuantity;
   let totalWeightOunces = Number(aiData.baseWeightOunces) * itemQuantity;
 
-  // 🛡️ Squishmallow / Apparel Compression Physics
+  // 🛡️ Soft Goods Compression Physics
   if (aiData.packagingType === 'soft_good') {
      totalVolume = totalVolume * 0.15; 
   } else if (aiData.packagingType === 'apparel') {
@@ -128,14 +128,16 @@ async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOrig
       if (!allowedTypes.includes(box.type)) return false;
       if (box.maxVol < totalVolume) return false; 
       
+      // 🛡️ CRITICAL FIX: Apparel maxQty capacity lock. Forces boxes for bulk clothing.
+      if (box.maxQty && itemQuantity > box.maxQty) return false;
+      
       let boxDims = [box.l, box.w, box.h].sort((a,b) => b - a);
       let itemDims = [effectiveLength, Number(aiData.baseWidth), Number(aiData.baseHeight)].sort((a,b) => b - a);
       
       if (box.type === 'tube') {
           return box.l >= effectiveLength;
       } else if (box.type === 'soft_good') {
-          // 🛡️ CRITICAL FIX: Squishmallows ignore length/width ratios. If volume fits, it squishes in.
-          return true;
+          return true; // Vacuum bags squish to fit volume
       } else if (box.type === 'apparel') {
           return (box.l * 1.5 >= effectiveLength) && (box.w * 1.5 >= Math.min(Number(aiData.baseWidth), Number(aiData.baseHeight)));
       } else {
@@ -187,7 +189,7 @@ async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOrig
     console.log('💡 Shippo pipeline warning: ' + err.message);
   }
 
-  // 🛡️ CRITICAL FIX: The Oversize Reality Check (Overrides fake sandbox rates)
+  // Oversize Reality Check (Overrides fake sandbox rates)
   if (selectedBox.type === 'tube' || selectedBox.name.includes('Freight')) {
       if (boxLength > 48 && calculatedRateNum < 25) {
           calculatedRateNum = 28.50; 
@@ -200,7 +202,7 @@ async function compileLiveCarrierBoxResponse(aiData, pageShippingCost, cleanOrig
 
   const numericPageCost = Number(pageShippingCost);
   
-  // 🛡️ CRITICAL FIX: Universal Arbitrage applied to ALL Qty 1 items
+  // Universal Arbitrage applied to ALL Qty 1 items
   if (numericPageCost > 0 && calculatedRateNum > numericPageCost && itemQuantity === 1) {
       calculatedRateNum = numericPageCost * 0.82;
       if (boxLength >= 20 || selectedBox.type === 'tube') {
@@ -288,7 +290,7 @@ Output ONLY a valid JSON object matching this structure:
       
       const lowerTitle = String(title).toLowerCase();
       
-      // 🛡️ CRITICAL FIX: Word Boundary Regex for Accessories
+      // Word Boundary Regex for Accessories
       if (/\b(tee|tees|glove|gloves|ball|balls|grip|grips|towel|towels|sock|socks|hat|hats|beanie|beanies)\b/.test(lowerTitle)) {
           aiData.packagingType = 'apparel';
           aiData.baseLength = 8;
@@ -297,8 +299,9 @@ Output ONLY a valid JSON object matching this structure:
           aiData.baseWeightOunces = 4;
       }
 
-      // 🛡️ CRITICAL FIX: Deterministic check for Tubes, Bats, and Rods
-      const isTubeItem = lowerTitle.includes('rod') || lowerTitle.includes('pole') || lowerTitle.includes('shaft') || lowerTitle.includes('bat');
+      // 🛡️ CRITICAL FIX: Expanded Tube regex to catch generic un-named fishing poles (Shimano fix)
+      const isTubeItem = lowerTitle.includes('rod') || lowerTitle.includes('pole') || lowerTitle.includes('shaft') || lowerTitle.includes('bat') || lowerTitle.includes('fishing') || lowerTitle.includes('shimano');
+      
       if (isTubeItem) {
           aiData.packagingType = 'tube'; 
           if (/(2\s*pc|2\s*piece|two\s*piece)/.test(lowerTitle)) {
