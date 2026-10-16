@@ -1,0 +1,146 @@
+[
+  {
+    "id": "golf_clubs", "priority": 60,
+    "any": ["golf club", "golf driver", "golf putter", "golf iron", "golf wedge", "fairway wood", "putter", "driver head"],
+    "none": ["golf shirt", "golf bag", "golf ball", "golf glove", "golf shoe", "golf cart", "headcover", "head cover", "grip", "shaft only"],
+    "dims": [44, 4.5, 4], "weightOz": 14, "rigidity": "rigid", "fragility": "med"
+  },
+  {
+    "id": "baseball_bat", "priority": 60,
+    "any": ["baseball bat", "softball bat", "cricket bat", "wiffle bat"],
+    "none": ["bat bag", "bat grip", "bat sleeve"],
+    "dims": [34, 3, 3], "weightOz": 30, "rigidity": "rigid", "fragility": "med"
+  },
+  {
+    "id": "racket", "priority": 55,
+    "any": ["racket", "racquet"],
+    "none": ["bag", "string", "grip", "cover", "overgrip", "stringer"],
+    "dims": [27, 10.5, 1.5], "weightOz": 11, "rigidity": "rigid", "fragility": "med"
+  },
+  {
+    "id": "fishing_rod", "priority": 55,
+    "any": ["fishing rod", "fly rod", "spinning rod", "casting rod"],
+    "none": ["rod holder", "rod rack", "rod case", "rod tube"],
+    "dims": [84, 2, 2], "weightOz": 8, "rigidity": "rigid", "fragility": "med", "pieces": 2
+  },
+  {
+    "id": "boots", "priority": 55,
+    "any": ["boot"],
+    "none": ["boot cover", "boot bag", "boot tray", "boot jack", "boot dryer"],
+    "dims": [15, 11, 6], "weightOz": 48, "rigidity": "rigid", "fragility": "low"
+  },
+  {
+    "id": "shoes", "priority": 50,
+    "any": ["shoe", "sneaker", "sandal", "cleat", "loafer", "slipper", "trainer"],
+    "none": ["shoe rack", "shoe tree", "shoe lace", "shoelace", "shoe polish", "shoe bag", "shoe horn", "insole", "sock"],
+    "dims": [13, 9, 5], "weightOz": 32, "rigidity": "rigid", "fragility": "low"
+  },
+  {
+    "id": "cookware", "priority": 50,
+    "any": ["cast iron", "skillet", "frying pan", "saute pan", "griddle pan"],
+    "none": ["seasoning", "cleaner", "scrub", "scraper", "handle cover", "lid only"],
+    "dims": [17, 11, 3], "weightOz": 80, "rigidity": "rigid", "fragility": "low"
+  },
+  {
+    "id": "smartphone", "priority": 55,
+    "any": ["cell phone", "smartphone", "iphone", "android phone"],
+    "none": ["case", "charger", "cable", "screen protector", "cover", "holder", "mount", "adapter", "stand"],
+    "dims": [7, 4, 2.5], "weightOz": 12, "rigidity": "rigid", "fragility": "high"
+  },
+  {
+    "id": "laptop", "priority": 55,
+    "any": ["laptop", "macbook", "chromebook", "notebook computer"],
+    "none": ["case", "charger", "sleeve", "bag", "stand", "skin", "screen", "battery", "adapter", "keyboard"],
+    "dims": [15, 11, 2.5], "weightOz": 72, "rigidity": "rigid", "fragility": "high"
+  },
+  {
+    "id": "tablet", "priority": 55,
+    "any": ["tablet", "ipad"],
+    "none": ["case", "charger", "cover", "stand", "screen", "stylus", "keyboard", "holder"],
+    "dims": [10, 8, 1.5], "weightOz": 20, "rigidity": "rigid", "fragility": "high"
+  },
+  {
+    "id": "camera", "priority": 50,
+    "any": ["camera", "camera lens", "dslr", "mirrorless"],
+    "none": ["bag", "strap", "tripod", "case", "battery", "charger", "filter"],
+    "dims": [7, 5, 4], "weightOz": 28, "rigidity": "rigid", "fragility": "high"
+  },
+  {
+    "id": "headphones", "priority": 50,
+    "any": ["headphone", "earbud", "airpod"],
+    "none": ["case", "cover", "pad", "tip", "stand", "cable"],
+    "dims": [9.5, 7.5, 3.5], "weightOz": 20, "rigidity": "rigid", "fragility": "high"
+  },
+  {
+    "id": "watch", "priority": 50,
+    "any": ["watch", "smartwatch"],
+    "none": ["watch box", "watch winder", "watch stand", "watch case", "watch tool", "band", "strap", "bezel", "crystal"],
+    "dims": [5, 4, 3], "weightOz": 8, "rigidity": "rigid", "fragility": "high"
+  },
+  {
+    "id": "jewelry", "priority": 50,
+    "any": ["jewelry", "necklace", "bracelet", "earring", "pendant", "brooch"],
+    "none": ["jewelry box", "jewelry organizer", "display"],
+    "dims": [4, 3, 1.5], "weightOz": 2, "rigidity": "rigid", "fragility": "high"
+  },
+  {
+    "id": "trading_cards", "priority": 55,
+    "any": ["trading card", "pokemon card", "sports card", "graded card", "psa", "comic book"],
+    "none": ["binder", "sleeve", "box"],
+    "dims": [8, 5.5, 1], "weightOz": 4, "rigidity": "rigid", "fragility": "med", "mailerOk": true
+  },
+  {
+    "id": "media_discs", "priority": 50,
+    "any": ["video game", "dvd", "blu ray", "compact disc", "cd"],
+    "none": ["console", "controller", "player", "drive"],
+    "dims": [8, 6, 1], "weightOz": 4, "rigidity": "rigid", "fragility": "low", "mailerOk": true
+  },
+  {
+    "id": "vinyl_record", "priority": 55,
+    "any": ["vinyl record", "lp record", "vinyl lp", "12 inch vinyl"],
+    "none": ["cleaner", "sleeve", "stand", "brush"],
+    "dims": [12.5, 12.5, 0.5], "weightOz": 8, "rigidity": "rigid", "fragility": "med"
+  },
+  {
+    "id": "books", "priority": 40,
+    "any": ["book", "novel", "paperback", "hardcover", "textbook", "cookbook"],
+    "none": ["bookmark", "book light", "bookend", "book bag", "bookshelf", "book stand", "book cover"],
+    "dims": [9, 6, 1.5], "weightOz": 14, "rigidity": "rigid", "fragility": "low", "mailerOk": true
+  },
+  {
+    "id": "socks_underwear", "priority": 45,
+    "any": ["sock", "underwear", "boxer brief", "panty", "panties"],
+    "none": [],
+    "dims": [8, 5, 0.8], "weightOz": 2.5, "rigidity": "flexible", "fragility": "low", "stackFactor": 0.7
+  },
+  {
+    "id": "jackets", "priority": 45,
+    "any": ["jacket", "coat", "parka", "hoodie", "sweatshirt", "fleece", "vest"],
+    "none": ["jacket liner", "coat rack", "coat hanger"],
+    "dims": [16, 12, 3.5], "weightOz": 26, "rigidity": "flexible", "fragility": "low", "stackFactor": 0.75
+  },
+  {
+    "id": "jeans_pants", "priority": 45,
+    "any": ["jeans", "denim", "pants", "trousers", "slacks", "cargo"],
+    "none": [],
+    "dims": [12, 10, 2], "weightOz": 22, "rigidity": "flexible", "fragility": "low", "stackFactor": 0.75
+  },
+  {
+    "id": "handbag", "priority": 45,
+    "any": ["handbag", "purse", "tote bag", "crossbody", "satchel"],
+    "none": ["organizer", "insert", "strap only"],
+    "dims": [12, 9, 4], "weightOz": 24, "rigidity": "flexible", "fragility": "low", "stackFactor": 0.8
+  },
+  {
+    "id": "tshirts", "priority": 46,
+    "any": ["t shirt", "tshirt", "tee", "tee shirt", "graphic tee", "tank top"],
+    "none": ["golf tee", "tee time", "tee box", "tee holder", "shirt box", "display"],
+    "dims": [11, 9, 0.8], "weightOz": 6, "rigidity": "flexible", "fragility": "low", "stackFactor": 0.6
+  },
+  {
+    "id": "apparel_generic", "priority": 40,
+    "any": ["shirt", "tee", "t shirt", "blouse", "dress", "shorts", "skirt", "sweater", "polo", "leggings", "clothing", "apparel", "scrubs", "cardigan", "tank top"],
+    "none": ["shirt box", "display"],
+    "dims": [11, 9, 1], "weightOz": 7, "rigidity": "flexible", "fragility": "low", "stackFactor": 0.7
+  }
+]

@@ -1,0 +1,232 @@
+{
+  "_comment": "Golden cases. Add a row here whenever a real listing comes out wrong, then fix the DATA (categories.json / packages.json) or the engine, never a one-off if/else. Use title+categoryPath to test the rule path, or an explicit 'profile' (item dims in inches, weight in oz) for items that normally need the LLM. 'weight' is the listing weight for ONE listing quantity (null = unknown). Expectations: kind (flexible = mailer, rigid = box), maxVolume (package l*w*h in cubic inches), nameMatches / nameNotMatches (regex on box name), maxPackageWeightOz. Expected values below are reasoned estimates from the QA matrix, not measured packages: replace them with real measurements as you collect them.",
+  "cases": [
+    {
+      "id": "tee-qty1",
+      "source": "QA-006 Hanes tee qty 1",
+      "title": "Buy Hanes Men's Cotton Pocket T-Shirt, Moisture-Wicking with Odor Control, Assorted",
+      "categoryPath": "Clothing, Shoes & Accessories > Men > Men > Men's Clothing > Shirts > T-Shirts",
+      "qty": 1,
+      "weight": null,
+      "expect": {
+        "kind": "flexible",
+        "maxVolume": 300,
+        "nameNotMatches": "XL|Custom|Freight|Heavy|Flat Rate"
+      }
+    },
+    {
+      "id": "tee-qty2",
+      "source": "QA-006 Hanes tee qty 2 (was XL 20x16x12)",
+      "title": "Buy Hanes Men's Cotton Pocket T-Shirt, Moisture-Wicking with Odor Control, Assorted",
+      "categoryPath": "Clothing, Shoes & Accessories > Men > Men > Men's Clothing > Shirts > T-Shirts",
+      "qty": 2,
+      "weight": null,
+      "expect": {
+        "kind": "flexible",
+        "maxVolume": 400,
+        "nameNotMatches": "XL|Custom|Freight|Heavy|Flat Rate"
+      }
+    },
+    {
+      "id": "tee-qty3",
+      "source": "QA-006 Hanes tee qty 3 (was XL 20x16x12)",
+      "title": "Buy Hanes Men's Cotton Pocket T-Shirt, Moisture-Wicking with Odor Control, Assorted",
+      "categoryPath": "Clothing, Shoes & Accessories > Men > Men > Men's Clothing > Shirts > T-Shirts",
+      "qty": 3,
+      "weight": null,
+      "expect": {
+        "kind": "flexible",
+        "maxVolume": 600,
+        "nameNotMatches": "XL|Custom|Freight|Heavy|Flat Rate",
+        "maxPackageWeightOz": 25
+      }
+    },
+    {
+      "id": "tee-qty6",
+      "source": "QA-006 Hanes tee qty 6 (was Custom 20x16x22)",
+      "title": "Buy Hanes Men's Cotton Pocket T-Shirt, Moisture-Wicking with Odor Control, Assorted",
+      "categoryPath": "Clothing, Shoes & Accessories > Men > Men > Men's Clothing > Shirts > T-Shirts",
+      "qty": 6,
+      "weight": null,
+      "expect": {
+        "kind": "flexible",
+        "maxVolume": 1200,
+        "nameNotMatches": "XL|Custom|Freight|Heavy|Flat Rate",
+        "maxPackageWeightOz": 45
+      }
+    },
+    {
+      "id": "tee-qty7",
+      "source": "user report: qty 7",
+      "title": "Buy Hanes Men's Cotton Pocket T-Shirt, Moisture-Wicking with Odor Control, Assorted",
+      "categoryPath": "Clothing, Shoes & Accessories > Men > Men > Men's Clothing > Shirts > T-Shirts",
+      "qty": 7,
+      "weight": null,
+      "expect": {
+        "kind": "flexible",
+        "maxVolume": 1600,
+        "nameNotMatches": "XL|Custom|Freight|Heavy|Flat Rate",
+        "maxPackageWeightOz": 50
+      }
+    },
+    {
+      "id": "tee-2pack-qty1",
+      "source": "QA-009 True Classic 2 Pack qty 1",
+      "title": "True Classic Men\u2019s Black Crew Neck T Shirts Short Sleeve Size L - 2 Pack | eBay",
+      "categoryPath": "Clothing, Shoes & Accessories > Men > Men > Men's Clothing > Shirts > T-Shirts",
+      "qty": 1,
+      "weight": null,
+      "expect": {
+        "kind": "flexible",
+        "maxVolume": 400,
+        "nameNotMatches": "XL|Custom|Freight|Heavy|Flat Rate"
+      }
+    },
+    {
+      "id": "tee-2pack-qty3",
+      "source": "QA-009 True Classic 2 Pack qty 3 (was XL, $50)",
+      "title": "True Classic Men\u2019s Black Crew Neck T Shirts Short Sleeve Size L - 2 Pack | eBay",
+      "categoryPath": "Clothing, Shoes & Accessories > Men > Men > Men's Clothing > Shirts > T-Shirts",
+      "qty": 3,
+      "weight": null,
+      "expect": {
+        "kind": "flexible",
+        "maxVolume": 1200,
+        "nameNotMatches": "XL|Custom|Freight|Heavy|Flat Rate"
+      }
+    },
+    {
+      "id": "socks-4pack",
+      "source": "QA-006 Supreme Hanes socks (4 Pack)",
+      "title": "Supreme Hanes Crew Socks (4 Pack) Black Size OS (Shoe Size 6-12) | eBay",
+      "categoryPath": "Clothing, Shoes & Accessories > Men > Men's Shoes > Athletic Shoes",
+      "qty": 1,
+      "weight": null,
+      "expect": {
+        "kind": "flexible",
+        "maxVolume": 300,
+        "maxPackageWeightOz": 16
+      }
+    },
+    {
+      "id": "shoes-af1",
+      "source": "QA-007 Nike Air Force 1",
+      "title": "Nike Air Force 1 Low '07 \"White\" Triple White Men's Size CW2288-111 Ship Now | eBay",
+      "categoryPath": "Clothing, Shoes & Accessories > Men > Men's Shoes > Athletic Shoes",
+      "qty": 1,
+      "weight": null,
+      "expect": {
+        "kind": "rigid",
+        "maxVolume": 1000,
+        "nameNotMatches": "Oversize|XL|Heavy-Duty|Custom"
+      }
+    },
+    {
+      "id": "headphones-sony",
+      "source": "QA-008 Sony WH-1000XM5 (needs LLM in production; explicit profile here)",
+      "title": "Sony WH-1000XM5 Wireless Noise Canceling Headphones - Black",
+      "qty": 1,
+      "weight": null,
+      "profile": {
+        "dims": [
+          9.5,
+          7.5,
+          3.5
+        ],
+        "weightOz": 20,
+        "rigidity": "rigid",
+        "fragility": "high"
+      },
+      "expect": {
+        "kind": "rigid",
+        "maxVolume": 1000,
+        "nameNotMatches": "Oversize|XL|Heavy-Duty|Custom"
+      }
+    },
+    {
+      "id": "racquet-prokennex",
+      "source": "QA-004 Pro Kennex racquet (was Oversize Freight 30x24x24)",
+      "title": "Pro Kennex Ki Q+ 5 Pro Grip Size 4 1/4 Tennis Racket | eBay",
+      "categoryPath": "Sporting Goods > Tennis & Racquet Sports > Tennis > Racquets",
+      "qty": 1,
+      "weight": null,
+      "expect": {
+        "kind": "rigid",
+        "maxVolume": 1728,
+        "nameMatches": "Flat Equipment",
+        "nameNotMatches": "Oversize|Freight"
+      }
+    },
+    {
+      "id": "golf-driver",
+      "source": "QA-004 TaylorMade SIM2 driver (was Custom Freight 46x6x6; needs LLM in production)",
+      "title": "TaylorMade SIM2 Max Driver 10.5\u00b0 Ventus Blue 5-R Regular Flex RH w/ Headcover | eBay",
+      "qty": 1,
+      "weight": null,
+      "profile": {
+        "dims": [
+          46,
+          4.5,
+          4.5
+        ],
+        "weightOz": 14,
+        "rigidity": "rigid",
+        "fragility": "med"
+      },
+      "expect": {
+        "kind": "rigid",
+        "nameMatches": "Tube",
+        "maxPackageWeightOz": 40
+      }
+    },
+    {
+      "id": "cast-iron-pan",
+      "source": "QA-003 Jim Beam 10.5in cast iron pan, listing weight 96 oz (needs LLM in production)",
+      "title": "Jim Beam 10.5\" Cast Iron Pan | eBay",
+      "categoryPath": "Home & Garden > Kitchen, Dining & Bar > Cookware > Frying & Grill Pans",
+      "qty": 1,
+      "weight": 96,
+      "profile": {
+        "dims": [
+          17,
+          10.5,
+          2.5
+        ],
+        "weightOz": 96,
+        "rigidity": "rigid",
+        "fragility": "low"
+      },
+      "expect": {
+        "kind": "rigid",
+        "maxVolume": 1600,
+        "nameNotMatches": "Oversize|XL|Heavy-Duty|Freight",
+        "maxPackageWeightOz": 110
+      }
+    },
+    {
+      "id": "tee-qty20",
+      "source": "stress: 20 tees must never go in a tube or freight box",
+      "title": "Buy Hanes Men's Cotton Pocket T-Shirt, Moisture-Wicking with Odor Control, Assorted",
+      "categoryPath": "Clothing, Shoes & Accessories > Men > Men > Men's Clothing > Shirts > T-Shirts",
+      "weight": null,
+      "qty": 20,
+      "expect": {
+        "nameNotMatches": "Tube|Flat Equipment|Freight|Oversize|Heavy-Duty",
+        "maxPackageWeightOz": 160
+      }
+    },
+    {
+      "id": "shoes-qty2",
+      "source": "multi-quantity rigid goods: 2 pairs of shoes",
+      "title": "Nike Air Force 1 Low '07 White Men's Size 11",
+      "categoryPath": "Clothing, Shoes & Accessories > Men > Men's Shoes > Athletic Shoes",
+      "qty": 2,
+      "weight": null,
+      "expect": {
+        "kind": "rigid",
+        "maxVolume": 2400,
+        "nameNotMatches": "Oversize|Freight|XL|Heavy-Duty"
+      }
+    }
+  ]
+}

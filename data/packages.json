@@ -1,0 +1,44 @@
+{
+  "_comment": "Packaging library. kind=flexible: l,w are outside dimensions, maxThickness is how thick the packed contents may get, accepts lists what it will hold (soft = flexible goods, flat = thin rigid goods marked mailerOk). kind=rigid: l,w,h are outside dimensions. template = Shippo parcel template token (needed to get carrier flat-rate pricing). minItemLength = specialty long boxes are only offered to items whose longest side (unfolded) is at least this many inches, so 20 tees never go in a tube. costUsd is what the seller pays for the packaging itself (tie-breaker only). Template tokens and flat-rate outside dimensions were checked against Shippo's carrier-parcel-templates docs (Oct 2026).",
+  "packages": [
+    { "id": "poly_6x9",    "name": "Poly Mailer 6x9",      "kind": "flexible", "l": 9,    "w": 6,    "maxThickness": 1,   "accepts": ["soft"], "tareOz": 0.2, "costUsd": 0.10, "maxPayloadOz": 16 },
+    { "id": "poly_10x13",  "name": "Poly Mailer 10x13",    "kind": "flexible", "l": 13,   "w": 10,   "maxThickness": 2,   "accepts": ["soft"], "tareOz": 0.4, "costUsd": 0.15, "maxPayloadOz": 48 },
+    { "id": "poly_12x155", "name": "Poly Mailer 12x15.5",  "kind": "flexible", "l": 15.5, "w": 12,   "maxThickness": 3,   "accepts": ["soft"], "tareOz": 0.6, "costUsd": 0.22, "maxPayloadOz": 64 },
+    { "id": "poly_145x19", "name": "Poly Mailer 14.5x19",  "kind": "flexible", "l": 19,   "w": 14.5, "maxThickness": 4,   "accepts": ["soft"], "tareOz": 0.9, "costUsd": 0.32, "maxPayloadOz": 80 },
+    { "id": "poly_19x24",  "name": "Poly Mailer 19x24",    "kind": "flexible", "l": 24,   "w": 19,   "maxThickness": 6,   "accepts": ["soft"], "tareOz": 1.4, "costUsd": 0.50, "maxPayloadOz": 96 },
+
+    { "id": "bubble_0",    "name": "Bubble Mailer #0 (6x10)",     "kind": "flexible", "l": 10,   "w": 6,    "maxThickness": 0.75, "accepts": ["soft", "flat"], "tareOz": 0.5, "costUsd": 0.40, "maxPayloadOz": 16 },
+    { "id": "bubble_2",    "name": "Bubble Mailer #2 (8.5x12)",   "kind": "flexible", "l": 12,   "w": 8.5,  "maxThickness": 1.25, "accepts": ["soft", "flat"], "tareOz": 0.8, "costUsd": 0.55, "maxPayloadOz": 32 },
+    { "id": "bubble_5",    "name": "Bubble Mailer #5 (10.5x16)",  "kind": "flexible", "l": 16,   "w": 10.5, "maxThickness": 1.5,  "accepts": ["soft", "flat"], "tareOz": 1.2, "costUsd": 0.75, "maxPayloadOz": 48 },
+    { "id": "bubble_7",    "name": "Bubble Mailer #7 (14.25x20)", "kind": "flexible", "l": 20,   "w": 14.25,"maxThickness": 2,    "accepts": ["soft", "flat"], "tareOz": 1.8, "costUsd": 1.00, "maxPayloadOz": 64 },
+
+    { "id": "usps_small_frb",  "name": "USPS Small Flat Rate Box",  "kind": "rigid", "l": 8.69,  "w": 5.44,  "h": 1.75,  "tareOz": 2.5, "costUsd": 0, "template": "USPS_SmallFlatRateBox",   "maxPayloadOz": 1000 },
+    { "id": "usps_med_frb1",   "name": "USPS Medium Flat Rate Box", "kind": "rigid", "l": 11.25, "w": 8.75,  "h": 6,     "tareOz": 4,   "costUsd": 0, "template": "USPS_MediumFlatRateBox1", "maxPayloadOz": 1120 },
+    { "id": "usps_large_frb",  "name": "USPS Large Flat Rate Box",  "kind": "rigid", "l": 12.25, "w": 12.25, "h": 6,     "tareOz": 6,   "costUsd": 0, "template": "USPS_LargeFlatRateBox",   "maxPayloadOz": 1120 },
+
+    { "id": "box_9x6x2",    "name": "Flat Box 9x6x2",          "kind": "rigid", "l": 9,  "w": 6,  "h": 2,  "tareOz": 2,  "costUsd": 0.45 },
+    { "id": "box_13x13x15", "name": "Record Mailer 13.5x13.5x1.5", "kind": "rigid", "l": 13.5, "w": 13.5, "h": 1.5, "tareOz": 5, "costUsd": 1.20 },
+    { "id": "box_8x6x4",    "name": "Small Box 8x6x4",         "kind": "rigid", "l": 8,  "w": 6,  "h": 4,  "tareOz": 3,  "costUsd": 0.55 },
+    { "id": "box_18x12x4", "name": "Flat Box 18x12x4",       "kind": "rigid", "l": 18, "w": 12, "h": 4,  "tareOz": 5,  "costUsd": 0.90 },
+    { "id": "box_10x8x4",   "name": "Box 10x8x4",              "kind": "rigid", "l": 10, "w": 8,  "h": 4,  "tareOz": 4,  "costUsd": 0.65 },
+    { "id": "box_12x9x6",   "name": "Medium Box 12x9x6",       "kind": "rigid", "l": 12, "w": 9,  "h": 6,  "tareOz": 5,  "costUsd": 0.85 },
+    { "id": "box_14x10x6",  "name": "Box 14x10x6",             "kind": "rigid", "l": 14, "w": 10, "h": 6,  "tareOz": 6,  "costUsd": 1.00 },
+    { "id": "box_16x12x8",  "name": "Large Box 16x12x8",       "kind": "rigid", "l": 16, "w": 12, "h": 8,  "tareOz": 8,  "costUsd": 1.40 },
+    { "id": "box_14x10x10", "name": "Box 14x10x10",         "kind": "rigid", "l": 14, "w": 10, "h": 10, "tareOz": 8,  "costUsd": 1.20 },
+    { "id": "box_16x14x10", "name": "Box 16x14x10",         "kind": "rigid", "l": 16, "w": 14, "h": 10, "tareOz": 10, "costUsd": 1.60 },
+    { "id": "box_18x14x12", "name": "Box 18x14x12",         "kind": "rigid", "l": 18, "w": 14, "h": 12, "tareOz": 13, "costUsd": 2.00 },
+    { "id": "box_24x16x12", "name": "Box 24x16x12",         "kind": "rigid", "l": 24, "w": 16, "h": 12, "tareOz": 20, "costUsd": 2.80 },
+    { "id": "box_20x16x12", "name": "XL Box 20x16x12",         "kind": "rigid", "l": 20, "w": 16, "h": 12, "tareOz": 16, "costUsd": 2.40 },
+    { "id": "box_24x18x18", "name": "Heavy-Duty Box 24x18x18", "kind": "rigid", "l": 24, "w": 18, "h": 18, "tareOz": 32, "costUsd": 4.00 },
+    { "id": "box_30x24x24", "name": "Oversize Box 30x24x24",   "kind": "rigid", "l": 30, "w": 24, "h": 24, "tareOz": 48, "costUsd": 6.50 },
+
+    { "id": "flat_30x13x4", "name": "Flat Equipment Box 30x13x4", "kind": "rigid", "l": 30, "w": 13, "h": 4, "tareOz": 5, "costUsd": 1.80, "minItemLength": 18 },
+    { "id": "flat_36x14x5", "name": "Flat Equipment Box 36x14x5", "kind": "rigid", "l": 36, "w": 14, "h": 5, "tareOz": 7, "costUsd": 2.30, "minItemLength": 18 },
+
+    { "id": "tube_36", "name": "Tube Box 36x6x6", "kind": "rigid", "l": 36, "w": 6, "h": 6, "tareOz": 6,  "costUsd": 2.00, "minItemLength": 18 },
+    { "id": "tube_48", "name": "Tube Box 48x6x6", "kind": "rigid", "l": 48, "w": 6, "h": 6, "tareOz": 8,  "costUsd": 2.60, "minItemLength": 18 },
+    { "id": "tube_60", "name": "Tube Box 60x6x6", "kind": "rigid", "l": 60, "w": 6, "h": 6, "tareOz": 10, "costUsd": 3.30, "minItemLength": 18 },
+    { "id": "tube_72", "name": "Tube Box 72x6x6", "kind": "rigid", "l": 72, "w": 6, "h": 6, "tareOz": 12, "costUsd": 4.20, "minItemLength": 18 },
+    { "id": "tube_96", "name": "Tube Box 96x6x6", "kind": "rigid", "l": 96, "w": 6, "h": 6, "tareOz": 16, "costUsd": 6.00, "minItemLength": 18 }
+  ]
+}
